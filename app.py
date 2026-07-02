@@ -3,6 +3,7 @@ DealMitra — AI sales agent chat for small businesses.
 Run locally:  streamlit run app.py
 """
 
+import html
 import os
 
 import streamlit as st
@@ -19,6 +20,50 @@ try:
 except Exception:
     pass  # no secrets.toml locally — .env via python-dotenv covers it
 
+# --- WhatsApp-style bubbles ----------------------------------------------
+st.markdown("""
+<style>
+.chat-row { display: flex; margin: 3px 0; }
+.chat-row.customer { justify-content: flex-end; }
+.chat-row.agent { justify-content: flex-start; }
+.bubble {
+    max-width: 78%;
+    padding: 8px 13px;
+    font-size: 0.95rem;
+    line-height: 1.45;
+    box-shadow: 0 1px 1px rgba(0,0,0,0.08);
+    word-wrap: break-word;
+}
+.bubble.customer {
+    background: #d9fdd3;
+    color: #111;
+    border-radius: 14px 14px 3px 14px;
+}
+.bubble.agent {
+    background: #ffffff;
+    color: #111;
+    border: 1px solid #e6e6e6;
+    border-radius: 14px 14px 14px 3px;
+}
+.bubble .who {
+    font-size: 0.7rem;
+    color: #667781;
+    margin-bottom: 2px;
+}
+</style>
+""", unsafe_allow_html=True)
+
+
+def bubble(role: str, text: str):
+    who = "You (customer)" if role == "customer" else BUSINESS_NAME
+    safe = html.escape(text).replace("\n", "<br>")
+    st.markdown(
+        f'<div class="chat-row {role}"><div class="bubble {role}">'
+        f'<div class="who">{who}</div>{safe}</div></div>',
+        unsafe_allow_html=True,
+    )
+
+
 # --- session state ------------------------------------------------------
 if "messages" not in st.session_state:
     st.session_state.messages = []
@@ -28,9 +73,9 @@ messages: list = st.session_state.messages
 deal: DealState = st.session_state.deal
 
 # --- header -------------------------------------------------------------
-st.markdown("### DealMitra")
-st.caption(f"AI sales agent for {BUSINESS_NAME}. Chat in Hindi, Telugu, Tamil or English — "
-           f"it pitches, negotiates step by step, and asks the owner before crossing its limits.")
+st.markdown(f"### DealMitra · {BUSINESS_NAME}")
+st.caption("AI sales agent. Chat in Hindi, Telugu, Tamil or English — it pitches, "
+           "negotiates step by step, and asks the owner before crossing its limits.")
 
 with st.expander("Catalog and negotiation limits (owner view)"):
     for p in CATALOG.values():
@@ -45,8 +90,7 @@ st.divider()
 
 # --- chat history --------------------------------------------------------
 for m in messages:
-    with st.chat_message("user" if m["role"] == "customer" else "assistant"):
-        st.markdown(m["text"])
+    bubble(m["role"], m["text"])
 
 # --- approval gate --------------------------------------------------------
 if deal.status == "pending_approval":
@@ -90,14 +134,12 @@ if deal.status == "closed":
 if deal.status == "negotiating":
     if prompt := st.chat_input("Type as the customer… e.g. 'bhai 50 notebook chahiye, best rate?'"):
         messages.append({"role": "customer", "text": prompt})
-        with st.chat_message("user"):
-            st.markdown(prompt)
-        with st.chat_message("assistant"):
-            with st.spinner("DealMitra is typing…"):
-                try:
-                    reply = process_turn(messages, deal)
-                except Exception as e:
-                    reply = f"Error talking to the model: {e}"
+        bubble("customer", prompt)
+        with st.spinner("typing…"):
+            try:
+                reply = process_turn(messages, deal)
+            except Exception as e:
+                reply = f"Error talking to the model: {e}"
         messages.append({"role": "agent", "text": reply})
         st.rerun()
 elif deal.status == "pending_approval":

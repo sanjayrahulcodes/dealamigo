@@ -4,7 +4,7 @@ Edit the catalog and negotiation bounds before your demo — the agent's
 concessions and approval escalations are driven entirely by these numbers.
 """
 
-BUSINESS_NAME = "Shree Stationery Mart"
+BUSINESS_NAME = "CROSSWORD"
 
 CURRENCY_SYMBOL = "₹"
 

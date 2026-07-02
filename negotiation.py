@@ -88,7 +88,8 @@ def state_briefing(state: DealState) -> str:
     nxt = state.next_price()
     if nxt is not None:
         lines.append(f"- If the customer pushes back, your NEXT ALLOWED price is "
-                     f"{CURRENCY_SYMBOL}{nxt}/pc. Offer nothing lower.")
+                     f"{CURRENCY_SYMBOL}{nxt}/pc. Offer nothing lower. Quote it EXACTLY "
+                     f"as written — do not round it (say {CURRENCY_SYMBOL}{nxt}, not an approximation).")
     else:
         lines.append(f"- You are AT YOUR FLOOR ({CURRENCY_SYMBOL}{state.current_price()}/pc). "
                      f"You may not concede again. Anything lower => action \"escalate\".")
