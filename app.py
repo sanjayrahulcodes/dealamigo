@@ -7,7 +7,9 @@ import html
 import os
 
 import streamlit as st
+import streamlit.components.v1 as components
 
+from billing import generate_bill
 from config import BUSINESS_NAME, CATALOG, CURRENCY_SYMBOL
 from negotiation import DealState, process_turn, resolve_approval
 
@@ -117,7 +119,7 @@ if deal.status == "pending_approval":
             messages.append({"role": "agent", "text": reply})
             st.rerun()
 
-# --- closed banner ---------------------------------------------------------
+# --- closed banner + bill ---------------------------------------------------
 if deal.status == "closed":
     total = round((deal.agreed_price or 0) * (deal.quantity or 0), 2)
     p = deal.product()
@@ -125,9 +127,24 @@ if deal.status == "closed":
         f"Deal closed — {deal.quantity} × {CURRENCY_SYMBOL}{deal.agreed_price}"
         f"{' of ' + p['name'] if p else ''} = {CURRENCY_SYMBOL}{total:,}. Logged to output/deals.json"
     )
+
+    if "bill" not in st.session_state:
+        st.session_state.bill = generate_bill(deal)
+    bill_html, bill_path = st.session_state.bill
+    with st.expander("Bill / receipt", expanded=True):
+        components.html(bill_html, height=560, scrolling=True)
+        st.download_button(
+            "Download bill (HTML — open and print as PDF)",
+            data=bill_html,
+            file_name=bill_path.name,
+            mime="text/html",
+            use_container_width=True,
+        )
+
     if st.button("Start new deal"):
         st.session_state.messages = []
         st.session_state.deal = DealState()
+        st.session_state.pop("bill", None)
         st.rerun()
 
 # --- input -----------------------------------------------------------------
