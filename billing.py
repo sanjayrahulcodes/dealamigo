@@ -34,8 +34,9 @@ def generate_bill(state, customer_note: str = "") -> tuple[str, Path]:
 <meta charset="utf-8">
 <title>Bill {bill_no} — {BUSINESS_NAME}</title>
 <style>
+  html {{ background: #ffffff; }}
   body {{ font-family: Georgia, 'Times New Roman', serif; color: #222; max-width: 700px;
-         margin: 40px auto; padding: 0 24px; }}
+         margin: 40px auto; padding: 0 24px; background: #ffffff; }}
   .letterhead {{ text-align: center; border-bottom: 3px double #1a3c6e; padding-bottom: 14px; }}
   .letterhead h1 {{ margin: 0; font-size: 30px; letter-spacing: 6px; color: #1a3c6e; }}
   .letterhead .tagline {{ font-style: italic; color: #555; margin: 4px 0; }}

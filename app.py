@@ -10,7 +10,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 from billing import generate_bill
-from config import BUSINESS_NAME, CATALOG, CURRENCY_SYMBOL
+from config import BUSINESS_NAME, CATALOG, CURRENCY_SYMBOL, SMALL_ORDER_MIN
 from negotiation import DealState, process_turn, resolve_approval
 
 st.set_page_config(page_title="DealMitra", layout="centered")
@@ -80,12 +80,14 @@ st.caption("AI sales agent. Chat in Hindi, Telugu, Tamil or English — it pitch
            "negotiates step by step, and asks the owner before crossing its limits.")
 
 with st.expander("Catalog and negotiation limits (owner view)"):
+    st.caption(f"Orders under {SMALL_ORDER_MIN} units always need owner approval. "
+               f"Below a product's bulk minimum: list price only, no discount.")
     for p in CATALOG.values():
         floor = round(p["list_price"] * (1 - p["discount_steps"][-1] / 100), 2)
         st.markdown(
             f"**{p['name']}** — list {CURRENCY_SYMBOL}{p['list_price']}/{p['unit']}, "
             f"discount steps {p['discount_steps']}% "
-            f"(floor {CURRENCY_SYMBOL}{floor}), MOQ {p['moq']}"
+            f"(floor {CURRENCY_SYMBOL}{floor}), discounts from {p['moq']}+ {p['unit']}s"
         )
 
 st.divider()
