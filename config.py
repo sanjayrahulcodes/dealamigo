@@ -4,7 +4,7 @@ Edit the catalog and negotiation bounds before your demo — the agent's
 concessions and approval escalations are driven entirely by these numbers.
 """
 
-BUSINESS_NAME = "M POWER Fasteners"
+BUSINESS_NAME = "Shree Stationery Mart"
 
 CURRENCY_SYMBOL = "₹"
 
@@ -13,38 +13,48 @@ CURRENCY_SYMBOL = "₹"
 # order, one step per customer push-back. The last step is the agent's
 # hard floor — anything deeper goes to the owner for approval.
 CATALOG = {
-    "m8_hex_bolt": {
-        "name": "M8 x 40mm Hex Bolt (Grade 8.8)",
+    "long_notebook": {
+        "name": "Long Notebook 200 pages (single line)",
+        "unit": "piece",
+        "list_price": 60.0,
+        "discount_steps": [0, 5, 10, 15],  # percent
+        "moq": 25,
+        "pitch": "Thick 58 GSM paper, no ink bleed, hard cover. Schools and coaching centres buy these in bulk from us.",
+    },
+    "ball_pen": {
+        "name": "Blue Ball Pen (0.7mm)",
         "unit": "piece",
         "list_price": 10.0,
-        "discount_steps": [0, 4, 8, 12],  # percent
+        "discount_steps": [0, 5, 10, 15],
+        "moq": 50,
+        "pitch": "Smooth-writing branded pen, fresh stock. Most offices around here order monthly from us.",
+    },
+    "hb_pencil": {
+        "name": "HB Pencil (pack quality, dark lead)",
+        "unit": "piece",
+        "list_price": 5.0,
+        "discount_steps": [0, 4, 8, 12],
         "moq": 100,
-        "pitch": "High-tensile grade 8.8, zinc plated, ISI marked. Trusted by 200+ local workshops.",
+        "pitch": "Dark smooth lead, doesn't break on sharpening. Popular with schools for exam season.",
     },
-    "wall_anchor": {
-        "name": "10mm Nylon Wall Anchor with Screw",
-        "unit": "piece",
-        "list_price": 6.0,
-        "discount_steps": [0, 5, 10],
-        "moq": 200,
-        "pitch": "Heavy-duty nylon, holds up to 40kg in solid brick. Screw included.",
-    },
-    "ss_screw": {
-        "name": "SS-304 Self-Tapping Screw 4x30mm",
-        "unit": "piece",
-        "list_price": 3.5,
-        "discount_steps": [0, 5, 10, 14],
-        "moq": 500,
-        "pitch": "Rust-proof stainless 304, sharp thread, no pilot hole needed for wood or sheet metal.",
+    "a4_paper": {
+        "name": "A4 Copier Paper 75 GSM (500-sheet ream)",
+        "unit": "ream",
+        "list_price": 280.0,
+        "discount_steps": [0, 3, 6, 10],
+        "moq": 5,
+        "pitch": "Jam-free in all printers and photocopiers, bright white. Offices and print shops take 20-30 reams at a time.",
     },
 }
 
 # Any single deal above this total value needs owner approval even if the
 # discount is within bounds.
-BIG_ORDER_THRESHOLD = 25000
+BIG_ORDER_THRESHOLD = 15000
 
 # Languages the agent will happily converse in (it mirrors the customer).
 SUPPORTED_LANGUAGES = "Hindi, Telugu, Tamil, English — including mixed/romanized script"
 
-# Gemini model. Override with env var GEMINI_MODEL.
-DEFAULT_MODEL = "gemini-2.5-flash-lite"
+# OpenRouter model. Override with env var OPENROUTER_MODEL.
+# google/gemini-2.5-flash-lite: best Indic-language quality per rupee.
+# Fallback that also works well: openai/gpt-4o-mini
+DEFAULT_MODEL = "google/gemini-2.5-flash-lite"

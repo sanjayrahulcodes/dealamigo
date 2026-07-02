@@ -16,9 +16,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
+import requests
 from dotenv import load_dotenv
-from google import genai
-from google.genai import types
 
 from config import CATALOG, CURRENCY_SYMBOL, BIG_ORDER_THRESHOLD, DEFAULT_MODEL
 from system_prompt import build_system_prompt
@@ -99,44 +98,45 @@ def state_briefing(state: DealState) -> str:
     return "\n".join(lines)
 
 
-_cached_client: genai.Client | None = None
-
-
-def _client() -> genai.Client:
-    # Cached: a throwaway Client can be garbage-collected mid-request,
-    # which closes its underlying httpx connection.
-    global _cached_client
-    if _cached_client is None:
-        api_key = os.environ.get("GEMINI_API_KEY")
-        if not api_key:
-            raise RuntimeError("GEMINI_API_KEY not set (env or .env)")
-        _cached_client = genai.Client(api_key=api_key)
-    return _cached_client
+OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 
 def _generate(prompt: str) -> dict:
-    """One Gemini call with JSON output; retries transient 5xx errors so a
-    momentary capacity blip doesn't kill a live demo."""
+    """One OpenRouter call with JSON output; retries transient 5xx/429 errors
+    so a momentary capacity blip doesn't kill a live demo."""
+    api_key = os.environ.get("OPENROUTER_API_KEY")
+    if not api_key:
+        raise RuntimeError("OPENROUTER_API_KEY not set (env or .env)")
+    model = os.environ.get("OPENROUTER_MODEL", DEFAULT_MODEL)
+
     last_err = None
     for attempt in range(4):
         try:
-            response = _client().models.generate_content(
-                model=os.environ.get("GEMINI_MODEL", DEFAULT_MODEL),
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    system_instruction=build_system_prompt(),
-                    max_output_tokens=1024,
-                    response_mime_type="application/json",
-                    thinking_config=types.ThinkingConfig(thinking_budget=0),
-                ),
+            r = requests.post(
+                OPENROUTER_URL,
+                headers={"Authorization": f"Bearer {api_key}"},
+                json={
+                    "model": model,
+                    "messages": [
+                        {"role": "system", "content": build_system_prompt()},
+                        {"role": "user", "content": prompt},
+                    ],
+                    "response_format": {"type": "json_object"},
+                    "max_tokens": 1024,
+                },
+                timeout=60,
             )
-            raw = (response.text or "").strip().strip("`")
+            data = r.json()
+            if "choices" not in data:
+                raise RuntimeError(f"OpenRouter error: {data.get('error', data)}")
+            raw = data["choices"][0]["message"]["content"].strip().strip("`")
             if raw.startswith("json"):
                 raw = raw[4:].strip()
             return json.loads(raw)
         except Exception as e:
             last_err = e
-            transient = "503" in str(e) or "UNAVAILABLE" in str(e) or "500" in str(e)
+            msg = str(e)
+            transient = any(t in msg for t in ("429", "500", "502", "503", "timed out", "timeout"))
             if not transient or attempt == 3:
                 raise
             time.sleep(2 * (attempt + 1))
@@ -206,6 +206,11 @@ def resolve_approval(approved: bool, messages: list[dict], state: DealState) -> 
     else:
         state.status = "negotiating"
         state.pending_ask_pct = None
+        # The agent now offers the floor as its final price, so the state
+        # must sit at the last step — otherwise a subsequent close_deal
+        # would log the pre-escalation price instead of the floor.
+        if p:
+            state.step_index = len(p["discount_steps"]) - 1
         state.log("owner_rejected", f"holding at floor {CURRENCY_SYMBOL}{state.floor_price()}/pc")
         instruction = (f"OWNER DECISION: REJECTED. Politely tell the customer the best you can "
                        f"do is {CURRENCY_SYMBOL}{state.floor_price()}/pc — final price. Stay warm, "
