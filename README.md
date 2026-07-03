@@ -1,9 +1,18 @@
 # DealAmigo — AI Sales Agent for Small Businesses
 
+**Live demo: https://dealamigo-seven.vercel.app** (owner console PIN: `1234`)
+
 An AI sales agent that negotiates with customers in their own language (Hindi,
 Telugu, Tamil, English — mixed/romanized script included), within limits the
 business owner controls, escalating to the owner only when a deal crosses them —
 then generates a letterheaded receipt and hands off delivery/pickup to WhatsApp.
+
+Two implementations live in this repo:
+- **`web/` — the deployed product** (Vercel): static frontend + one Node
+  serverless function, owner console hidden behind a PIN, business config in
+  the browser's localStorage.
+- **Streamlit app (repo root)** — the original prototype, still runnable
+  locally with `streamlit run app.py`.
 
 ## Two views, one app
 
