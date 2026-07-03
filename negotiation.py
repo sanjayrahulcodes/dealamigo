@@ -19,12 +19,21 @@ from pathlib import Path
 import requests
 from dotenv import load_dotenv
 
-from config import CATALOG, CURRENCY_SYMBOL, BIG_ORDER_THRESHOLD, DEFAULT_MODEL, SMALL_ORDER_MIN
+from config import CURRENCY_SYMBOL, DEFAULT_MODEL
+from store import get_catalog, get_profile
 from system_prompt import build_system_prompt
 
 load_dotenv()
 
 DEALS_LOG = Path(__file__).parent / "output" / "deals.json"
+
+
+def _small_min() -> int:
+    return int(get_profile().get("small_order_min", 5))
+
+
+def _big_threshold() -> float:
+    return float(get_profile().get("big_order_threshold", 15000))
 
 
 @dataclass
@@ -39,7 +48,7 @@ class DealState:
 
     # --- price helpers -------------------------------------------------
     def product(self):
-        return CATALOG.get(self.product_id) if self.product_id else None
+        return get_catalog().get(self.product_id) if self.product_id else None
 
     def price_at(self, step: int) -> float | None:
         p = self.product()
@@ -94,9 +103,13 @@ def state_briefing(state: DealState) -> str:
         f"- Price currently on the table: {CURRENCY_SYMBOL}{state.current_price()}/pc "
         f"(step {state.step_index + 1} of {len(p['discount_steps'])})",
     ]
+    if state.quantity is not None and p.get("stock") is not None and state.quantity > p["stock"]:
+        lines.append(f"- STOCK LIMIT: only {p['stock']} available right now — the customer wants "
+                     f"{state.quantity}. Offer what you can supply; never promise more.")
     qty = state.quantity
-    if qty is not None and qty < SMALL_ORDER_MIN:
-        lines.append(f"- QUANTITY {qty} IS BELOW THE SHOP MINIMUM OF {SMALL_ORDER_MIN}. "
+    small_min = _small_min()
+    if qty is not None and qty < small_min:
+        lines.append(f"- QUANTITY {qty} IS BELOW THE SHOP MINIMUM OF {small_min}. "
                      f"You cannot close this order yourself — say you'll check with the "
                      f"owner and set action \"escalate\".")
     elif not state.discount_allowed():
@@ -114,7 +127,7 @@ def state_briefing(state: DealState) -> str:
                          f"You may not concede again. Anything lower => action \"escalate\".")
         lines.append(f"- Hard floor: {CURRENCY_SYMBOL}{state.floor_price()}/pc "
                      f"(max {state.max_auto_discount()}% off). Below this, escalate.")
-    lines.append(f"- Orders above {CURRENCY_SYMBOL}{BIG_ORDER_THRESHOLD:,} total also escalate.")
+    lines.append(f"- Orders above {CURRENCY_SYMBOL}{_big_threshold():,.0f} total also escalate.")
     lines.append("- Before closing, always repeat the math (qty × rate = total) and get a "
                  "clear yes. If the customer names a lump-sum total, compute per-piece = "
                  "total ÷ qty, confirm it with them first, and put that exact rate in "
@@ -183,7 +196,7 @@ def process_turn(messages: list[dict], state: DealState) -> str:
     result = _call_model(messages, state)
 
     # Adopt the model's reading of the conversation (facts, not prices).
-    if result.get("product_id") in CATALOG:
+    if result.get("product_id") in get_catalog():
         state.product_id = result["product_id"]
     if isinstance(result.get("quantity"), (int, float)) and result["quantity"]:
         state.quantity = int(result["quantity"])
@@ -191,7 +204,7 @@ def process_turn(messages: list[dict], state: DealState) -> str:
     # The briefing the model saw was built before this turn's quantity was
     # extracted. If the new quantity is below the shop minimum and the model
     # didn't escalate, give it one corrected pass with the updated briefing.
-    if (state.quantity and state.quantity < SMALL_ORDER_MIN
+    if (state.quantity and state.quantity < _small_min()
             and result.get("action") != "escalate"):
         result = _call_model(messages, state)
 
@@ -207,8 +220,8 @@ def process_turn(messages: list[dict], state: DealState) -> str:
         implied = round(p["list_price"] * (1 - asked / 100), 2)
         min_allowed = p["list_price"] if not state.discount_allowed() else state.floor_price()
         if (implied >= min_allowed
-                and (not qty or qty >= SMALL_ORDER_MIN)
-                and implied * qty <= BIG_ORDER_THRESHOLD):
+                and (not qty or qty >= _small_min())
+                and implied * qty <= _big_threshold()):
             correction = (
                 f"CORRECTION — read carefully: the customer's proposed rate of "
                 f"{CURRENCY_SYMBOL}{implied}/pc is NOT below your minimum allowed "
@@ -222,7 +235,7 @@ def process_turn(messages: list[dict], state: DealState) -> str:
     # --- validate the action against the state machine -----------------
 
     if action == "concede":
-        if qty and qty < SMALL_ORDER_MIN:
+        if qty and qty < _small_min():
             action = "escalate"  # tiny orders always go to the owner
         elif state.next_price() is not None:
             state.step_index += 1
@@ -246,13 +259,13 @@ def process_turn(messages: list[dict], state: DealState) -> str:
         min_allowed = list_price if not state.discount_allowed() else (state.floor_price() or 0)
         total = unit * qty
 
-        if qty and qty < SMALL_ORDER_MIN:
+        if qty and qty < _small_min():
             action = "escalate"
-            state.log("small_order", f"qty {qty} below shop minimum {SMALL_ORDER_MIN}")
+            state.log("small_order", f"qty {qty} below shop minimum {_small_min()}")
         elif unit < min_allowed:
             action = "escalate"
             asked = asked or (round((1 - unit / list_price) * 100, 1) if list_price else None)
-        elif total > BIG_ORDER_THRESHOLD:
+        elif total > _big_threshold():
             action = "escalate"
             asked = asked or state.max_auto_discount()
         else:

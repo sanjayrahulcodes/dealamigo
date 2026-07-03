@@ -6,22 +6,26 @@ the shop letterhead. Saved to output/bills/ and offered as a download in the UI.
 from datetime import datetime
 from pathlib import Path
 
-from config import BUSINESS_NAME, CURRENCY_SYMBOL
+from config import CURRENCY_SYMBOL
+from store import get_profile
 
 BILLS_DIR = Path(__file__).parent / "output" / "bills"
 
-# Letterhead details — edit for your shop.
-SHOP_ADDRESS = "Shop No. 12, Main Bazaar Road, Hyderabad — 500001"
-SHOP_PHONE = "+91 98xxx xxxxx"
-SHOP_EMAIL = "orders@crossword.example"
-SHOP_TAGLINE = "Books · Stationery · Office Supplies"
-
 
 def generate_bill(state, customer_note: str = "") -> tuple[str, Path]:
-    """Build the HTML bill for a closed deal. Returns (html, saved_path)."""
+    """Build the HTML bill for a closed deal, letterheaded with the owner's
+    business details from the store. Returns (html, saved_path)."""
+    profile = get_profile()
+    BUSINESS_NAME = profile["business_name"]
+    SHOP_ADDRESS = profile.get("address", "")
+    SHOP_PHONE = profile.get("phone", "")
+    SHOP_EMAIL = profile.get("email", "")
+    SHOP_TAGLINE = profile.get("tagline", "")
+
     p = state.product()
     now = datetime.now()
-    bill_no = f"CW-{now:%Y%m%d-%H%M%S}"
+    prefix = "".join(w[0] for w in BUSINESS_NAME.split()[:2]).upper() or "DA"
+    bill_no = f"{prefix}-{now:%Y%m%d-%H%M%S}"
     qty = state.quantity or 0
     rate = state.agreed_price or 0
     list_price = p["list_price"] if p else 0
