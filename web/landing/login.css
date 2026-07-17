@@ -1,0 +1,69 @@
+/* ===== DealAmigo login ===== */
+.auth-body{min-height:100vh;background:var(--bg-tint)}
+.auth-brand{position:fixed;top:22px;left:28px;font-weight:800;font-size:1.2rem;
+  display:flex;align-items:center;gap:.4em;z-index:10}
+.auth-brand .brand-mark{color:var(--green)}
+
+.auth-wrap{min-height:100vh;display:grid;grid-template-columns:1fr 1fr}
+.auth-card{max-width:420px;width:100%;margin:auto;padding:48px 40px;
+  display:flex;flex-direction:column}
+.auth-title{font-size:2.1rem;font-weight:800}
+.auth-sub{color:var(--muted);margin:8px 0 26px}
+
+/* role toggle */
+.role-toggle{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:24px}
+.role-btn{display:flex;align-items:center;gap:11px;text-align:left;
+  background:#fff;border:1.5px solid var(--line);border-radius:14px;padding:13px 14px;
+  cursor:pointer;font-family:inherit;transition:border-color .15s,box-shadow .15s,background .15s}
+.role-btn:hover{border-color:#c9d2cb}
+.role-btn.active{border-color:var(--green);background:var(--green-l);
+  box-shadow:0 0 0 3px rgba(14,92,70,.08)}
+.role-ic{font-size:1.4rem}
+.role-btn b{display:block;font-size:.95rem}
+.role-btn small{color:var(--muted);font-size:.78rem}
+
+/* google */
+.google-btn{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;
+  background:#fff;border:1.5px solid var(--line);border-radius:999px;padding:12px;
+  font-family:inherit;font-weight:600;font-size:.98rem;cursor:pointer;transition:background .15s,border-color .15s}
+.google-btn:hover{background:#f7f8f6;border-color:#c9d2cb}
+
+.auth-divider{display:flex;align-items:center;gap:14px;color:var(--muted);
+  font-size:.85rem;margin:20px 0}
+.auth-divider::before,.auth-divider::after{content:"";flex:1;height:1px;background:var(--line)}
+
+/* form */
+.auth-form{display:flex;flex-direction:column;gap:16px}
+.auth-form label{font-weight:600;font-size:.85rem;color:var(--ink-soft);
+  display:flex;flex-direction:column;gap:6px}
+.auth-form input[type=email],.auth-form input[type=password]{
+  border:1.5px solid var(--line);border-radius:11px;padding:12px 14px;
+  font-family:inherit;font-size:1rem;background:#fff;transition:border-color .15s,box-shadow .15s}
+.auth-form input:focus{outline:none;border-color:var(--green);box-shadow:0 0 0 3px rgba(14,92,70,.1)}
+.auth-row{display:flex;justify-content:space-between;align-items:center;font-size:.85rem}
+.rem{flex-direction:row!important;align-items:center;gap:7px!important;color:var(--ink-soft);font-weight:500!important}
+.auth-link{color:var(--green);font-weight:600}
+.auth-link:hover{text-decoration:underline}
+.auth-submit{width:100%;margin-top:4px}
+.auth-foot{text-align:center;margin-top:22px;color:var(--ink-soft);font-size:.95rem}
+.auth-demo{text-align:center;margin-top:14px;color:var(--muted);font-size:.78rem;
+  background:#fff;border:1px dashed var(--line);border-radius:10px;padding:8px}
+
+/* aside panel */
+.auth-aside{background:linear-gradient(150deg,var(--green),var(--green-d));
+  display:flex;align-items:center;justify-content:center;padding:48px;position:relative;overflow:hidden}
+.auth-aside::after{content:"";position:absolute;inset:0;
+  background:radial-gradient(circle at 80% 15%,rgba(232,161,61,.28),transparent 45%)}
+.aside-inner{position:relative;max-width:400px;color:#fff}
+.aside-quote{font-size:1.9rem;font-weight:700;letter-spacing:-.02em;line-height:1.2}
+.aside-panel{margin-top:34px;display:flex;flex-direction:column;gap:12px}
+.ap-row{display:flex;align-items:center;gap:12px;background:rgba(255,255,255,.12);
+  border:1px solid rgba(255,255,255,.16);border-radius:12px;padding:14px 16px;
+  font-weight:600;font-size:1rem}
+.ap-ic{font-size:1.2rem}
+
+@media(max-width:860px){
+  .auth-wrap{grid-template-columns:1fr}
+  .auth-aside{display:none}
+  .auth-card{padding-top:88px}
+}
