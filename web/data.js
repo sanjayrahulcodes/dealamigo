@@ -86,7 +86,12 @@
   // ---------------- businesses (seed + owner-added) ----------------
   function addedBusinesses() { return rd(LS.added, []); }
   function allBusinesses() { return [...SEED, ...addedBusinesses()]; }
-  function getBusiness(slug) { return seedMap[slug] || addedBusinesses().find((b) => b.slug === slug) || null; }
+  function getBusiness(slug) {
+    // An owner's saved edits (added list) override the seed — otherwise
+    // Settings changes for the 4 demo shops would silently never apply.
+    const overridden = addedBusinesses().find((b) => b.slug === slug);
+    return overridden || seedMap[slug] || null;
+  }
 
   function addBusiness(input, ownerEmail) {
     const added = addedBusinesses();
@@ -111,10 +116,12 @@
   // Businesses this owner manages. For the demo, an owner sees the 4 seed
   // shops plus any they've added themselves.
   function businessesForOwner(email) {
-    const mineAdded = addedBusinesses().filter((b) => b.ownerEmail === email);
-    const addedSlugs = new Set(mineAdded.map((b) => b.slug));
-    const seeds = SEED.filter((b) => !addedSlugs.has(b.slug));
-    return [...seeds, ...mineAdded];
+    const added = addedBusinesses();
+    // Show the saved-edit version of each seed shop if one exists, so the
+    // dashboard's business switcher reflects renamed/edited shops too.
+    const seeds = SEED.map((b) => added.find((a) => a.slug === b.slug) || b);
+    const ownedAdded = added.filter((b) => b.ownerEmail === email && !SEED.find((s) => s.slug === b.slug));
+    return [...seeds, ...ownedAdded];
   }
 
   // ---------------- deals (transactions) ----------------
@@ -151,6 +158,11 @@
     (all[slug] = all[slug] || []).unshift(deal);
     wr(LS.deals, all);
   }
+  function markPaid(slug, billNo, paymentId) {
+    const all = rd(LS.deals, {});
+    const deal = (all[slug] || []).find((d) => d.bill_no === billNo);
+    if (deal) { deal.paid = true; deal.payment_id = paymentId; wr(LS.deals, all); }
+  }
 
   // ---------------- pending-approval bus ----------------
   // Keyed by slug: { messages, state, product, quantity, askPct, createdAt,
@@ -181,7 +193,7 @@
 
   window.DA = {
     slugify, SEED, allBusinesses, getBusiness, addBusiness, updateBusiness,
-    businessesForOwner, getDeals, addDeal,
+    businessesForOwner, getDeals, addDeal, markPaid,
     getPending, allPending, setPending, clearPending, analytics,
   };
 })();

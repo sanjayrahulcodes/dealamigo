@@ -207,6 +207,7 @@ function renderOrderDone() {
   const p = catalogItem(deal.productId);
   const total = Math.round((deal.agreedPrice || 0) * (deal.quantity || 0) * 100) / 100;
   const wa = (business.profile.whatsapp || "").replace(/\D/g, "");
+  const rzpKey = (business.profile.razorpay_key_id || "").trim();
   const line = `Order ${billNo}: ${deal.quantity} x ${p ? p.name : "item"} @ ${RS}${deal.agreedPrice} = ${RS}${total}`;
   const dMsg = encodeURIComponent(`Hello ${business.profile.business_name}! ${line}. I'd like HOME DELIVERY please. My address: `);
   const pMsg = encodeURIComponent(`Hello ${business.profile.business_name}! ${line}. I'll PICK UP from the store. When can I collect it?`);
@@ -215,14 +216,44 @@ function renderOrderDone() {
   el.innerHTML = `
     <div class="od-title">✅ Order confirmed</div>
     <div class="od-sub">${deal.quantity} × ${RS}${deal.agreedPrice}${p ? " — " + esc(p.name) : ""} = <b>${RS}${total.toLocaleString("en-IN")}</b></div>
+    <div id="payStatus"></div>
     <div class="od-actions">
+      <button class="btn btn-green" id="btnPay">💳 Pay now</button>
       <button class="btn btn-outline" id="btnBill">View receipt</button>
-      ${wa ? `<a class="btn btn-green" target="_blank" rel="noopener" href="https://wa.me/${wa}?text=${dMsg}">Get it delivered</a>
+      ${wa ? `<a class="btn btn-outline" target="_blank" rel="noopener" href="https://wa.me/${wa}?text=${dMsg}">Get it delivered</a>
       <a class="btn btn-amber" target="_blank" rel="noopener" href="https://wa.me/${wa}?text=${pMsg}">Pick up at store</a>` : ""}
       <button class="btn btn-outline" id="btnNew">New order</button>
     </div>`;
   $("btnBill").onclick = () => { const w = window.open("", "_blank"); w.document.write(billHTML()); w.document.close(); };
   $("btnNew").onclick = () => { messages = []; deal = freshDeal(); billNo = null; $("orderDone").classList.add("hidden"); setLocked(false); renderChatFresh(); };
+  $("btnPay").onclick = () => payNow(total);
+}
+
+function payNow(total) {
+  const rzpKey = (business.profile.razorpay_key_id || "").trim();
+  const status = $("payStatus");
+  if (!rzpKey || typeof Razorpay === "undefined") {
+    status.innerHTML = `<div class="pay-note">Online payment isn't enabled for this shop yet — use WhatsApp to arrange payment, or pay on delivery/pickup.</div>`;
+    return;
+  }
+  const rzp = new Razorpay({
+    key: rzpKey,
+    amount: Math.round(total * 100), // paise
+    currency: "INR",
+    name: business.profile.business_name,
+    description: `Order ${billNo}`,
+    notes: { bill_no: billNo, shop: slug },
+    theme: { color: "#0e5c46" },
+    handler: (response) => {
+      status.innerHTML = `<div class="pay-note ok">✅ Payment received — ref ${esc(response.razorpay_payment_id)}. Thank you!</div>`;
+      DA.markPaid(slug, billNo, response.razorpay_payment_id);
+    },
+    modal: { ondismiss: () => { status.innerHTML = ""; } },
+  });
+  rzp.on("payment.failed", (resp) => {
+    status.innerHTML = `<div class="pay-note bad">Payment failed: ${esc(resp.error?.description || "please try again")}.</div>`;
+  });
+  rzp.open();
 }
 
 // ---------------- boot ----------------

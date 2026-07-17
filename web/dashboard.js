@@ -194,6 +194,11 @@ function renderSettings() {
         <label>Min order qty (below → approval) <input id="s-min" type="number" value="${p.small_order_min}" min="1"></label>
         <label>Big-order limit (${RS}) <input id="s-big" type="number" value="${p.big_order_threshold}" min="1000" step="500"></label>
       </div>
+      <div class="section-label" style="margin-top:16px">Payments</div>
+      <div class="form-grid">
+        <label class="wide">Razorpay Key ID <input id="s-rzp" value="${esc(p.razorpay_key_id || "")}" placeholder="rzp_test_xxxxxxxxxxxx"></label>
+      </div>
+      <p class="muted" style="margin-top:4px">Get a Key ID from your Razorpay dashboard (Settings → API Keys). Leave blank to keep "Pay now" off and rely on WhatsApp / pay-on-delivery instead.</p>
       <button class="btn primary" id="s-save" style="margin-top:16px">Save settings</button>
     </div>`;
   $("s-save").addEventListener("click", () => {
@@ -204,6 +209,7 @@ function renderSettings() {
       max_discount_pct: Number($("s-max").value || 0),
       small_order_min: Number($("s-min").value || 1),
       big_order_threshold: Number($("s-big").value || 15000),
+      razorpay_key_id: $("s-rzp").value.trim(),
     }) };
     DA.updateBusiness(active, patch);
     loadBusinesses();

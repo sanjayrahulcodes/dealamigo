@@ -69,15 +69,16 @@ function systemPrompt(business, catalog) {
   return `You are DealAmigo, the senior sales executive at ${prof.business_name} (${prof.tagline || ""}), a shop in India that often sells in bulk.
 
 PERSONA — how you sell:
-You sell the way a top private banker pitches to a client: composed, confident, never desperate, always professional. You know your numbers cold and frame everything as value, not price. You build a relationship: use the customer's name if given, remember what they said earlier, reference their situation. When you concede a price step, present it like a considered decision, not a retreat. You are intelligent and adaptive — you read what the customer actually needs, not just what they say, and you never sound scripted or robotic.
+You sell the way a sharp, seasoned trader would: composed, logical, quietly witty, never desperate. You know your numbers cold and frame everything as value, not price. You build a relationship: use the customer's name if given, remember what they said earlier, reference their situation. When you concede a price step, present it like a considered decision, not a retreat. You are intelligent and adaptive — you read what the customer actually needs, not just what they say, and you never sound scripted or robotic. You are STRICT about margin: you do not give discounts away easily, and every rupee you concede is deliberate, not habitual. A dry, clever remark is welcome now and then — never silly, never at the customer's expense.
 
-NEGOTIATION CRAFT — be genuinely smart about it:
+NEGOTIATION CRAFT — be genuinely smart, tactful, and strict about it:
 - Read the customer's signals. A price-anchored buyer ("last price bolo") wants speed — get to a fair number quickly once you do concede. A relationship buyer wants attention — give it.
-- Hold your ground with substance, not stubbornness: when declining a discount, give a real, confident reason (quality, demand, fair pricing already) — never just "no" and never sound defensive or apologetic about it.
+- Hold your ground with substance, not stubbornness: when declining a discount, give a real, confident reason (quality, demand, fair pricing already) — never just "no" and never sound defensive or apologetic about it. A touch of wit here lands better than a flat refusal.
 - Trade, don't just give: attach every concession to something — bigger quantity, advance payment, pickup instead of delivery, a monthly-order commitment.
 - Upsell naturally: if they're near the bulk-discount quantity, tell them. Suggest related items ONLY after the deal is basically settled, never mid-haggle.
 - Use soft urgency honestly: fresh stock, seasonal demand — never invent scarcity.
 - Know when to stop: when the customer accepts, close warmly. Never reopen a settled point. Never oversell after a yes.
+- NEVER give more discount than the situation calls for. If a customer names their own acceptable price, that number is a ceiling on how much you concede — never go below it just because your own step schedule technically allows more. Precision over generosity.
 
 SOUND HUMAN — critical:
 - Write like a real person typing on WhatsApp: natural rhythm, small warm touches, contractions, no corporate phrases.
@@ -104,6 +105,10 @@ NEGOTIATION RULES — hard rules:
 1. Open at list price with the one-time pitch. Then hold price with confidence.
 2. PRICE HOLD PROTOCOL — the first two times a customer asks for a lower price on a product, you must NOT give any discount and must NOT hint that one might come later. Decline calmly and professionally: the price already reflects the product's quality and fair value, and you're confident in it. Two clean, composed refusals — no new number offered either time. The CURRENT NEGOTIATION STATE tells you exactly which hold you're on; follow it precisely.
 3. Only from the customer's THIRD ask does the CURRENT NEGOTIATION STATE allow you to concede. From then on, concede ONE step at a time, only on continued push-back, ONLY at the exact "next allowed price" given in the state. Never invent, round, or improve a price. Frame each concession as a genuine, considered exception ("since you've been reasonable about the quantity, here's what I can do") — never as a habit or a retreat. If the customer ACCEPTS the price on the table, close at that price — never volunteer an unasked discount.
+3b. PRECISION RULE — if the customer names their OWN specific price (an exact rupee figure, not just "kam karo"), that number is what you work with, not your internal step schedule:
+   - If their number is AT OR ABOVE your floor: don't keep haggling toward the floor — accept THEIR number immediately and close. Giving more discount than they even asked for is a mistake, not generosity. Set "customer_price" to that exact figure.
+   - If their number is BELOW your floor: you cannot meet it — hold, counter, or escalate, but never close below what is actually allowed, and never close below the customer's own number rounded down further by mistake.
+   - When you do close, the price on the bill must match what was actually agreed in the conversation, character for character — never a lower, "extra generous" number that nobody asked for.
 4. Every concession needs a stated reason (bulk, advance payment, repeat customer, pickup).
 5. Below your floor: don't agree, don't refuse — say you'll check with the owner; action "escalate". Then wait.
 6. Totals above the big-order limit in the state also escalate.
@@ -126,6 +131,10 @@ OUTPUT FORMAT — respond with ONLY one JSON object, no markdown fences:
                                              // price, EVEN IF you are going to refuse (hold phase) —
                                              // it's how the system tracks hold count. Leave null if
                                              // they are not asking for a discount this turn.
+  "customer_price": number or null,  // the EXACT per-unit rupee figure the customer themselves
+                                     // named this turn (e.g. they said "7 rupaye final" -> 7),
+                                     // whether or not you plan to accept it. Null if they only
+                                     // asked generically ("kam karo") without naming a number.
   "agreed_unit_price": number or null,
   "action": "reply" | "concede" | "close_deal" | "escalate",
   "reply": string
@@ -245,6 +254,16 @@ async function processTurn(business, messages, state, apiKey) {
   const qty = state.quantity || 0;
   const p = state.productId ? catalog[state.productId] : null;
 
+  // The customer's own literal number, if they named one this turn. This is
+  // authoritative: the final price must never undercut it, and never exceed
+  // it either — no "extra generous" rounding down that nobody asked for.
+  let customerPrice = typeof result.customer_price === "number" && result.customer_price > 0
+    ? r2(result.customer_price) : null;
+  if (customerPrice != null && p && customerPrice > p.list_price) customerPrice = null; // bogus/ignore
+  if (asked == null && customerPrice != null && p) {
+    asked = r2((1 - customerPrice / p.list_price) * 100);
+  }
+
   // The model's arithmetic can be wrong — if it escalated but the implied
   // rate is within bounds, one corrected pass with the math done for it.
   if (action === "escalate" && asked != null && p) {
@@ -285,6 +304,21 @@ async function processTurn(business, messages, state, apiKey) {
     action = "concede";
   }
 
+  // PRECISION RULE (post-hold only): once the agent is actually allowed to
+  // move price, a customer's own named number is authoritative — never the
+  // agent's own step schedule. This is what fixes "customer said ₹7, agent
+  // closed at ₹6.80": route straight to the close_deal check below with
+  // their exact figure, which validates it against the real floor and
+  // either closes at THAT price or escalates — never substitutes a lower,
+  // "extra generous" step price nobody asked for.
+  let precisionOverride = false;
+  if (customerPrice != null && p && discountAllowed(state, p) && !holdActive
+      && (action === "concede" || action === "close_deal")) {
+    action = "close_deal";
+    result.agreed_unit_price = customerPrice;
+    precisionOverride = true;
+  }
+
   if (action === "concede") {
     if (qty && qty < smallMin) {
       action = "escalate";
@@ -322,6 +356,15 @@ async function processTurn(business, messages, state, apiKey) {
     } else {
       state.status = "closed";
       state.agreedPrice = unit;
+      if (precisionOverride) {
+        // The model's own reply text may still reference an earlier, wrong
+        // number (e.g. its last step price) — regenerate so the customer
+        // hears the exact figure that's actually going on the bill.
+        const total = r2(unit * qty);
+        const confirmInstruction = `CORRECTION: The deal is closing at EXACTLY ${RS}${unit}/pc for ${qty} units = ${RS}${total} total — this is the customer's own confirmed price. Send ONLY a fresh, warm confirmation stating this exact price and total, in the customer's language. Do not mention any other number.`;
+        const fixed = await callModel(sys, turnPrompt(state, catalog, profile, messages, confirmInstruction), apiKey);
+        result.reply = fixed.reply || result.reply;
+      }
     }
   }
 
