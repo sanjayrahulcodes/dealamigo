@@ -26,7 +26,7 @@ http.createServer((req, res) => {
     return;
   }
   let f = req.url.split("?")[0];
-  if (f === "/") f = "/index.html";
+  if (f.endsWith("/")) f += "index.html"; // "/" and "/shop/" -> their index.html
   fs.readFile(path.join(__dirname, f), (e, data) => {
     if (e) { res.statusCode = 404; return res.end("not found"); }
     res.setHeader("Content-Type", MIME[path.extname(f)] || "application/octet-stream");

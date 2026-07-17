@@ -1,4 +1,6 @@
-/* DealAmigo login — role toggle + deep-link (?role=owner). UI only. */
+/* DealAmigo login — role toggle + deep-link (?role=owner) + redirect.
+   Auth is a stub for now: any submit proceeds. Buyers land on the shops
+   directory; owners land in their shop's console. */
 (function () {
   const params = new URLSearchParams(location.search);
   const buttons = [...document.querySelectorAll(".role-btn")];
@@ -30,9 +32,12 @@
     },
   };
 
-  function apply(role) {
-    buttons.forEach((b) => b.classList.toggle("active", b.dataset.role === role));
-    const c = COPY[role];
+  let role = params.get("role") === "owner" ? "owner" : "user";
+
+  function apply(r) {
+    role = r;
+    buttons.forEach((b) => b.classList.toggle("active", b.dataset.role === r));
+    const c = COPY[r];
     title.textContent = c.title;
     sub.textContent = c.sub;
     quote.textContent = c.quote;
@@ -41,6 +46,17 @@
       .join("");
   }
 
+  // Stub "authentication": send buyers to the directory, owners to their shop.
+  function proceed() {
+    location.href = role === "owner" ? "shop/index.html" : "shops.html";
+  }
+
   buttons.forEach((b) => b.addEventListener("click", () => apply(b.dataset.role)));
-  apply(params.get("role") === "owner" ? "owner" : "user");
+  document.querySelector(".auth-form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    proceed();
+  });
+  document.querySelector(".google-btn").addEventListener("click", proceed);
+
+  apply(role);
 })();

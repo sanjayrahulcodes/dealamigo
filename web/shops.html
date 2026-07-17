@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shops near you · DealAmigo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="shops.css">
+</head>
+<body class="shops-body">
+
+<!-- top bar -->
+<header class="app-bar">
+  <a class="brand" href="index.html"><span class="brand-mark">◆</span> DealAmigo</a>
+  <div class="app-bar-right">
+    <span class="role-pill">Buyer</span>
+    <a class="app-logout" href="index.html">Log out</a>
+  </div>
+</header>
+
+<main class="shops-main">
+  <div class="shops-head">
+    <h1>Shops near you</h1>
+    <p>Pick a supplier and negotiate with its AI agent — in your own language.</p>
+    <div class="shops-search">
+      <span class="ss-ic">🔍</span>
+      <input type="text" placeholder="Search shops or products…">
+    </div>
+    <div class="shops-filters">
+      <button class="filter active">All</button>
+      <button class="filter">Stationery</button>
+      <button class="filter">Hardware</button>
+      <button class="filter">Packaging</button>
+      <button class="filter">Groceries</button>
+    </div>
+  </div>
+
+  <div class="shop-grid" id="shopGrid"></div>
+</main>
+
+<script src="shops.js"></script>
+</body>
+</html>
