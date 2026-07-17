@@ -1,85 +1,203 @@
-# DealAmigo — AI Sales Agent for Small Businesses
+# DealAmigo — the B2B marketplace where AI negotiates the deal
 
-**Live demo: https://dealamigo-seven.vercel.app** (owner console PIN: `1234`)
+**Live: https://dealamigo-seven.vercel.app**
 
-An AI sales agent that negotiates with customers in their own language (Hindi,
-Telugu, Tamil, English — mixed/romanized script included), within limits the
-business owner controls, escalating to the owner only when a deal crosses them —
-then generates a letterheaded receipt and hands off delivery/pickup to WhatsApp.
+DealAmigo is a marketplace that bridges the gap between small, local businesses
+and the bulk buyers who want to order from them. A supplier lists their shop
+once; from then on, an AI sales agent does the actual selling — pitching,
+haggling in the buyer's own language, and closing the deal — while the owner
+sets the limits it can never cross and steps in only for the calls that
+actually need a human.
 
-Two implementations live in this repo:
-- **`web/` — the deployed product** (Vercel): static frontend + one Node
-  serverless function, owner console hidden behind a PIN, business config in
-  the browser's localStorage.
-- **Streamlit app (repo root)** — the original prototype, still runnable
-  locally with `streamlit run app.py`.
+It's built around one belief: **for small businesses, a sale isn't a
+fixed-price checkout, it's a negotiation.** Millions of shops sell this way —
+over WhatsApp, across the counter, in whatever language the customer speaks —
+and no mainstream commerce platform is built for that. DealAmigo is.
 
-## Two views, one app
+## Why DealAmigo stands out
 
-**Customer view** — the shop's product list and a WhatsApp-style chat. The
-customer haggles in any supported language; the agent pitches once, negotiates
-step by step, and closes or escalates. After a deal closes they get the receipt
-and two buttons — home delivery or store pickup — each opening WhatsApp with
-the order pre-filled.
+- **It's a negotiation platform, not a storefront.** Every other small-business
+  commerce tool (Shopify, Dukaan, a WhatsApp catalog) assumes a fixed price.
+  DealAmigo's core product *is* the haggle — the thing that actually happens
+  when a wholesale buyer calls a supplier.
+- **The AI is an agent, not a chatbot glued onto a price list.** Language and
+  numbers are architecturally separate (see below). The model can be as
+  persuasive as it wants; it structurally cannot talk itself below the floor
+  the owner set.
+- **It's a two-sided marketplace, not a single shop's tool.** Buyers get one
+  place to discover and deal with multiple wholesale suppliers; owners get a
+  real dashboard — analytics, transactions, approvals, floor control — across
+  every business they run, not just one bot.
+- **The owner never loses control.** Every discount cap, every minimum order
+  quantity, every big-order threshold is set by the human who owns the risk.
+  The agent's job is to sell hard within those lines and hand off the moment
+  it would cross one.
+- **It closes the loop.** Deal → letterheaded receipt → WhatsApp handoff for
+  delivery/pickup → optional real payment via Razorpay. Nothing ends in a
+  screenshot.
 
-**Business view** — the owner console:
-- **Business profile**: name, tagline, address, phone, email, WhatsApp number —
-  all of it feeds the agent's introduction and the bill letterhead.
-- **Negotiation limits**: a global max-discount cap the agent can never exceed,
-  the minimum order quantity (below it every deal needs the owner), and the
-  big-order value that always needs sign-off.
-- **Inventory**: an editable product table (price, unit, per-product max
-  discount, bulk-discount minimum, stock, selling points). This is the agent's
-  entire knowledge of what the shop sells.
-- **Approvals**: when a customer wants more than the agent may give, the deal
-  appears here with the exact economics; Approve and the agent closes it in the
-  customer's language, Reject and it holds the floor price.
-- **Deal history**: every closed deal with quantity, rate, and total.
+## What's in the product
+
+### Landing page
+A marketing homepage (`web/index.html`) that pitches the platform: the
+negotiation problem, the AI agent's four core behaviors, how it works for
+buyers vs. owners, a live product preview, the supplier categories on the
+marketplace, and calls to action into sign-up. Smooth scroll-reveal sections,
+clean typography, no stock video.
+
+### Authentication (Supabase)
+Real accounts, not a demo toggle:
+- **Google sign-in** — fully configured and live (OAuth via Supabase Auth).
+- **Email + password sign-up/login** — implemented in the app (`login.js`,
+  `auth.js`); the Supabase project's email provider just needs to be switched
+  on in the dashboard to go live (a one-click setting, not a code change).
+- Signing up asks whether you're a **buyer** or a **business owner** and
+  routes accordingly — buyers land in the shop directory, owners land in
+  their dashboard.
+- Route guards (`requireAuth`) protect the directory, shop, and dashboard
+  pages from being viewed while signed out.
+
+### Buyer side
+- **Shop directory** (`shops.html`) — every business on the platform, with
+  search and category filters (Stationery, Hardware, Groceries, Electronics
+  and more as owners add them).
+- **Shop page** (`shop/`) — a clean overview of the business (about, products,
+  ratings) with a **"Chat with us"** button that opens a slide-in chat drawer.
+- **The chat itself**: negotiate in Hindi, Telugu, Tamil, or English (mixed
+  and romanized script all supported, one language mirrored per reply). The
+  agent pitches once, then negotiates.
+- **After a deal closes**: a letterheaded receipt, a **Pay Now** button
+  (Razorpay Checkout, see below), and one-tap WhatsApp handoff for home
+  delivery or store pickup.
+
+### Business owner side — the dashboard (`dashboard.html`)
+- **Overview / analytics** — revenue KPIs, a 7-day revenue chart, average
+  discount given, and top products by revenue.
+- **Transactions** — every closed deal: product, quantity, rate, discount,
+  total.
+- **Approvals** — when the agent hits a limit it can't cross on its own (a
+  price below floor, a tiny order, a huge total), the request lands here with
+  the exact economics spelled out. **Approve** and the agent confirms the deal
+  in the customer's own language in real time; **Reject** and it holds firm
+  at the floor price instead. This runs live across tabs/devices via a shared
+  pending-approval queue.
+- **Settings & floor** — business profile, negotiation limits (global max
+  discount, minimum order quantity, big-order threshold), and the Razorpay
+  Key ID for accepting real payments.
+- **Multi-business support** — a business switcher in the header, and an
+  **"+ Add business"** flow so one owner account can run several shops, each
+  with its own inventory, limits, and agent.
+
+### Payments — Razorpay
+Once a deal closes, the buyer sees a **Pay Now** button that opens Razorpay's
+real checkout using the Key ID the owner configured in Settings. No key
+configured yet? The button explains that plainly and falls back to the
+existing WhatsApp / pay-on-delivery flow — nothing breaks, nothing fakes a
+payment.
 
 ## Why it's an agent, not a chatbot
 
-Language and numbers are split on purpose. The LLM (via OpenRouter) handles
-understanding and phrasing; a deterministic state machine
-([negotiation.py](negotiation.py)) owns every number — the discount step on the
+Language and numbers are split on purpose. The LLM (via OpenRouter) only
+handles understanding the customer and phrasing replies. A deterministic
+state machine (`web/api/chat.js` for the live app; `negotiation.py` in the
+original Streamlit prototype) owns every number: the discount step on the
 table, the exact next price the model is allowed to offer, the floor derived
-from the owner's cap, and the close/escalate decision. The model is told each
-turn what it may offer and nothing more, its claimed action is validated in
-code before taking effect, and Python even double-checks the model's arithmetic
-(rejecting hallucinated "below floor" escalations). A persuasive customer can
-talk to the bot all day and never negotiate it below what the owner set.
+from the owner's cap, and the close/escalate decision. Specifically:
 
-## Model
+- The model is told, each turn, the *one* price it's allowed to offer next —
+  nothing else.
+- Its claimed action (`concede`, `close_deal`, `escalate`, ...) is validated
+  in code before it's allowed to change state.
+- **Price-hold protocol**: the first two times a customer asks for a
+  discount, the agent must refuse outright — professionally, with a real
+  reason, no number offered. Only from the third ask does it start conceding,
+  in shrinking steps that push toward (never past) the floor.
+- **Precision rule**: if a customer names their own exact price, that number
+  is authoritative. The agent will never settle for less discount than
+  necessary (if their number is above the floor, it accepts immediately
+  instead of continuing to haggle down) and never quietly give away *more*
+  discount than the customer actually asked for — a real bug we found and
+  fixed, where the agent could close a few paise below a price the customer
+  had explicitly named.
+- A keyword backstop catches discount requests even on turns where the model
+  forgets to self-report one, so the hold protocol can never be silently
+  skipped.
+- The code even double-checks the model's own arithmetic before honoring an
+  escalation, catching cases where it miscompares two numbers.
 
-Runs on OpenRouter, default `google/gemini-2.5-flash-lite` (best Indic-language
-quality per rupee). Swap via `OPENROUTER_MODEL` in `.env` — e.g.
-`openai/gpt-4o-mini` also works.
+A persuasive customer can talk to the agent all day; it structurally cannot
+be negotiated below what the owner allowed.
+
+## Tech stack
+
+- **Frontend**: static HTML/CSS/vanilla JS — no framework, fast to load,
+  fast to deploy.
+- **Backend**: one Node serverless function (`web/api/chat.js`) on Vercel,
+  running the entire negotiation state machine.
+- **LLM**: OpenRouter, default `google/gemini-2.5-flash-lite` (best
+  Indic-language quality per rupee); swappable via `OPENROUTER_MODEL`.
+- **Auth & data**: Supabase (Postgres + Auth). Schema and row-level security
+  policies in [`web/db/schema.sql`](web/db/schema.sql).
+- **Payments**: Razorpay Checkout, client-side integration, owner-configured
+  key.
+- **Hosting**: Vercel (static + serverless in one deploy).
+
+## Repo structure
+
+```
+web/                     the deployed product
+  index.html, styles.css, main.js       landing page
+  login.html/.css/.js                   auth (Google + email via Supabase)
+  auth.js                               Supabase client + session helpers
+  shops.html/.css/.js                   buyer-facing shop directory
+  shop/                                 per-shop overview + chat drawer
+  dashboard.html/.css/.js               owner console
+  data.js                               shared business/deal/approval data layer
+  api/chat.js                           negotiation engine (serverless function)
+  db/schema.sql                         Supabase tables + RLS policies
+
+app.py, negotiation.py, system_prompt.py,
+billing.py, store.py, config.py         original Streamlit prototype (still runnable)
+```
 
 ## Run locally
 
+**Web app (the live product):**
+```
+cd web
+npm install
+node dev-server.cjs        # serves the static site + /api/chat on :8502
+```
+Add an `.env` file at the repo root with `OPENROUTER_API_KEY=...` for the
+dev server to pick up, or set it in your shell.
+
+**Streamlit prototype (original single-shop version):**
 ```
 pip install -r requirements.txt
-copy .env.example .env        # paste your OPENROUTER_API_KEY (openrouter.ai/keys)
+copy .env.example .env        # paste your OPENROUTER_API_KEY
 streamlit run app.py
 ```
 
-## Deploy (free, ~3 minutes)
+## Deploy
 
-1. Push this folder to a GitHub repo.
-2. [share.streamlit.io](https://share.streamlit.io) → New app → repo, main file `app.py`.
-3. App Settings → Secrets: `OPENROUTER_API_KEY = "your-key"`.
-4. Deploy — public `https://<app>.streamlit.app` link.
+The `web/` folder deploys as-is on Vercel (static + one serverless function,
+`vercel.json` already configured). Set `OPENROUTER_API_KEY` as an environment
+variable in your Vercel project.
 
-## Files
+For auth and multi-tenant data: create a Supabase project, run
+[`web/db/schema.sql`](web/db/schema.sql) in its SQL editor, and configure
+Google OAuth + email under Authentication → Providers. Point `auth.js` at
+your project URL and anon key.
 
-- `app.py` — Streamlit app: customer chat + business console
-- `store.py` — persistent business profile + inventory (data/business.json)
-- `system_prompt.py` — agent persona, language rules, selling craft
-- `negotiation.py` — deal state machine, OpenRouter calls, deal log
-- `billing.py` — letterheaded HTML receipt from the owner's profile
-- `config.py` — app constants (name, currency, default model)
+For payments: each business owner adds their own Razorpay Key ID under
+Dashboard → Settings & floor.
 
 ## Roadmap
 
-- True WhatsApp channel via Twilio (the handoff links already point there)
-- Voice notes in/out
-- Multi-deal approval queue backed by a shared store
+- Move business/deal/approval data from the browser's local storage into the
+  Supabase tables the schema already defines, so the marketplace works across
+  devices, not just one browser.
+- Server-side Razorpay order creation + payment verification (currently a
+  client-only integration, fine for a demo, not yet production-hardened).
+- A real WhatsApp channel via Twilio — the handoff links already point there.
+- Voice-note negotiation in and out.
