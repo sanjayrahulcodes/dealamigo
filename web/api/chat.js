@@ -11,6 +11,7 @@
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 const DEFAULT_MODEL = "google/gemini-2.5-flash-lite";
 const RS = "₹"; // ₹
+const HOLD_TURNS = 2; // discount requests refused before the agent will concede at all
 
 // ---------- catalog / pricing ----------
 
@@ -46,6 +47,17 @@ function discountAllowed(state, p) {
   return state.quantity == null || state.quantity >= p.moq;
 }
 
+// Backstop for hold-count tracking: the model is asked to self-report every
+// discount request via requested_discount_pct, but LLMs are not perfectly
+// reliable at this across languages. This keyword scan on the raw customer
+// text catches an ask even when the model's field comes back null, so the
+// hold protocol can never be skipped just because the model forgot to flag it.
+const DISCOUNT_ASK_RE = /\b(?:kam(?!\s+se\s+kam)|kaam|sasta|chhoot|discount|thakkuva|taggin|kammi|kuraiv|thallu|thallupadi|cheap|lower|less|reduce|off)\b|best\s*price|better\s*price/i;
+function looksLikeDiscountAsk(messages) {
+  const last = [...messages].reverse().find(m => m.role === "customer");
+  return !!(last && DISCOUNT_ASK_RE.test(last.text));
+}
+
 // ---------- prompts ----------
 
 function systemPrompt(business, catalog) {
@@ -57,10 +69,11 @@ function systemPrompt(business, catalog) {
   return `You are DealAmigo, the senior sales executive at ${prof.business_name} (${prof.tagline || ""}), a shop in India that often sells in bulk.
 
 PERSONA — how you sell:
-You sell the way a top private banker pitches to a client: composed, confident, never desperate. You know your numbers cold and frame everything as value, not price. You build a relationship: use the customer's name if given, remember what they said earlier, reference their situation. When you concede a price step, present it like a considered decision, not a retreat.
+You sell the way a top private banker pitches to a client: composed, confident, never desperate, always professional. You know your numbers cold and frame everything as value, not price. You build a relationship: use the customer's name if given, remember what they said earlier, reference their situation. When you concede a price step, present it like a considered decision, not a retreat. You are intelligent and adaptive — you read what the customer actually needs, not just what they say, and you never sound scripted or robotic.
 
 NEGOTIATION CRAFT — be genuinely smart about it:
-- Read the customer's signals. A price-anchored buyer ("last price bolo") wants speed — get to a fair number quickly. A relationship buyer wants attention — give it.
+- Read the customer's signals. A price-anchored buyer ("last price bolo") wants speed — get to a fair number quickly once you do concede. A relationship buyer wants attention — give it.
+- Hold your ground with substance, not stubbornness: when declining a discount, give a real, confident reason (quality, demand, fair pricing already) — never just "no" and never sound defensive or apologetic about it.
 - Trade, don't just give: attach every concession to something — bigger quantity, advance payment, pickup instead of delivery, a monthly-order commitment.
 - Upsell naturally: if they're near the bulk-discount quantity, tell them. Suggest related items ONLY after the deal is basically settled, never mid-haggle.
 - Use soft urgency honestly: fresh stock, seasonal demand — never invent scarcity.
@@ -89,15 +102,16 @@ ${lines}
 
 NEGOTIATION RULES — hard rules:
 1. Open at list price with the one-time pitch. Then hold price with confidence.
-2. Concede ONE step at a time, only on push-back, ONLY at the exact "next allowed price" in the CURRENT NEGOTIATION STATE. Never invent or improve a price. If the customer ACCEPTS the price on the table, close at that price — never volunteer an unasked discount.
-3. Every concession needs a stated reason (bulk, advance payment, repeat customer, pickup).
-4. Below your floor: don't agree, don't refuse — say you'll check with the owner; action "escalate". Then wait.
-5. Totals above the big-order limit in the state also escalate.
-6. QUANTITY RULES:
+2. PRICE HOLD PROTOCOL — the first two times a customer asks for a lower price on a product, you must NOT give any discount and must NOT hint that one might come later. Decline calmly and professionally: the price already reflects the product's quality and fair value, and you're confident in it. Two clean, composed refusals — no new number offered either time. The CURRENT NEGOTIATION STATE tells you exactly which hold you're on; follow it precisely.
+3. Only from the customer's THIRD ask does the CURRENT NEGOTIATION STATE allow you to concede. From then on, concede ONE step at a time, only on continued push-back, ONLY at the exact "next allowed price" given in the state. Never invent, round, or improve a price. Frame each concession as a genuine, considered exception ("since you've been reasonable about the quantity, here's what I can do") — never as a habit or a retreat. If the customer ACCEPTS the price on the table, close at that price — never volunteer an unasked discount.
+4. Every concession needs a stated reason (bulk, advance payment, repeat customer, pickup).
+5. Below your floor: don't agree, don't refuse — say you'll check with the owner; action "escalate". Then wait.
+6. Totals above the big-order limit in the state also escalate.
+7. QUANTITY RULES:
    - Below the shop's small-order minimum (in the state): you cannot close it yourself — action "escalate".
    - Below the product's bulk-discount minimum: LIST PRICE ONLY, zero discount, no matter what. You may mention where the discount starts.
    - If requested quantity exceeds stock, offer what you can actually supply. Never promise stock you don't have.
-7. CONFIRM THE MATH BEFORE CLOSING:
+8. CONFIRM THE MATH BEFORE CLOSING:
    - Repeat the final numbers (quantity × rate = total) and get a clear yes.
    - Lump-sum totals ("450 me de do sab"): compute per-piece = total ÷ quantity, say the math back, close only after they agree — never the same turn.
    - On close, set "agreed_unit_price" to the exact per-piece rate confirmed — it goes on the printed bill.
@@ -108,7 +122,10 @@ OUTPUT FORMAT — respond with ONLY one JSON object, no markdown fences:
   "detected_language": string,
   "product_id": string or null,
   "quantity": number or null,
-  "requested_discount_pct": number or null,
+  "requested_discount_pct": number or null,  // set this whenever the customer is asking for a lower
+                                             // price, EVEN IF you are going to refuse (hold phase) —
+                                             // it's how the system tracks hold count. Leave null if
+                                             // they are not asking for a discount this turn.
   "agreed_unit_price": number or null,
   "action": "reply" | "concede" | "close_deal" | "escalate",
   "reply": string
@@ -137,11 +154,18 @@ function briefing(state, catalog, profile) {
   } else if (!discountAllowed(state, p)) {
     lines.push(`- Quantity ${state.quantity} is below the bulk-discount minimum of ${p.moq}. NO DISCOUNT at this size — hold list price ${RS}${p.list_price}/pc firmly. You may mention discounts start from ${p.moq}.`);
   } else {
-    const nxt = state.stepIndex < p.discount_steps.length - 1 ? priceAt(p, state.stepIndex + 1) : null;
-    if (nxt != null) {
-      lines.push(`- If the customer pushes back, your NEXT ALLOWED price is ${RS}${nxt}/pc. Offer nothing lower. Quote it EXACTLY as written — do not round it.`);
+    const holdCount = state.holdCount || 0;
+    const inHoldPhase = state.stepIndex === 0 && holdCount < HOLD_TURNS;
+    if (inHoldPhase) {
+      const holdNumber = holdCount + 1; // which refusal this would be, if they ask again
+      lines.push(`- HOLD PHASE — refusal ${holdNumber} of ${HOLD_TURNS}: if the customer asks for a lower price this turn, you must NOT give any discount. Decline calmly and professionally, citing the product's quality/value as the reason the price is fair. Do not name any new price. Action must be "reply". (You may only start conceding once the customer has asked ${HOLD_TURNS + 1} times in total.) IMPORTANT: whenever the customer is asking for a lower price this turn — even though you're refusing — you MUST still set "requested_discount_pct" in your JSON to your best estimate of what they want (e.g. 10 if unclear). This field is REQUIRED on every discount ask, refused or not; only leave it null if they are not asking for a discount at all this turn.`);
     } else {
-      lines.push(`- You are AT YOUR FLOOR (${RS}${cur}/pc). You may not concede again. Anything lower => action "escalate".`);
+      const nxt = state.stepIndex < p.discount_steps.length - 1 ? priceAt(p, state.stepIndex + 1) : null;
+      if (nxt != null) {
+        lines.push(`- The customer has pushed enough — you may now concede if they push again. Your NEXT ALLOWED price is ${RS}${nxt}/pc. Offer nothing lower. Quote it EXACTLY as written — do not round it. Present it as a considered one-time exception, not a habit.`);
+      } else {
+        lines.push(`- You are AT YOUR FLOOR (${RS}${cur}/pc). You may not concede again. Anything lower => action "escalate".`);
+      }
     }
     lines.push(`- Hard floor: ${RS}${floorPrice(p)}/pc (max ${maxAutoDiscount(p)}% off). Below this, escalate.`);
   }
@@ -204,8 +228,12 @@ async function processTurn(business, messages, state, apiKey) {
 
   let result = await callModel(sys, turnPrompt(state, catalog, profile, messages), apiKey);
 
+  const prevProductId = state.productId;
   if (result.product_id && catalog[result.product_id]) state.productId = result.product_id;
   if (typeof result.quantity === "number" && result.quantity) state.quantity = Math.floor(result.quantity);
+
+  // Switching products resets the hold count — it's a fresh negotiation.
+  if (state.productId !== prevProductId) state.holdCount = 0;
 
   // Quantity learned this turn may be below the shop minimum — corrected pass.
   if (state.quantity && state.quantity < smallMin && result.action !== "escalate") {
@@ -230,6 +258,33 @@ async function processTurn(business, messages, state, apiKey) {
     }
   }
 
+  // Hold protocol: the first HOLD_TURNS discount asks on a product get refused,
+  // no matter what the model decides — this is the one rule that must never
+  // depend on the model remembering correctly.
+  const askedThisTurn = asked != null || looksLikeDiscountAsk(messages);
+  const holdActive = p && discountAllowed(state, p) && state.stepIndex === 0
+    && (state.holdCount || 0) < HOLD_TURNS;
+  if (holdActive && (action === "concede" || askedThisTurn)) {
+    const wasConcede = action === "concede";
+    state.holdCount = (state.holdCount || 0) + 1;
+    action = "reply";
+    if (wasConcede) {
+      // The model tried to give a discount early — force a corrected,
+      // professional refusal instead of using its (wrong) reply text.
+      const correction = `CORRECTION: You may NOT give a discount yet — this is refusal ${state.holdCount} of ${HOLD_TURNS}. Decline calmly and professionally, citing the product's quality/value as the reason the price is fair. Do not name any new price, and do not hint a discount is coming. Action must be "reply".`;
+      result = await callModel(sys, turnPrompt(state, catalog, profile, messages, correction), apiKey);
+      action = "reply"; // enforced regardless of what the regenerated pass says
+    }
+  } else if (!holdActive && action === "reply" && askedThisTurn && p && discountAllowed(state, p)
+             && state.stepIndex < p.discount_steps.length - 1) {
+    // Past the hold phase, the customer pushed again, and the model's own
+    // reply already reads like an offer — but it mislabeled the action, so
+    // our step counter would silently fall out of sync with what was said.
+    // Treat it as the concede it obviously is, so the price on the table
+    // (and the next turn's briefing) matches what the customer just heard.
+    action = "concede";
+  }
+
   if (action === "concede") {
     if (qty && qty < smallMin) {
       action = "escalate";
@@ -245,6 +300,15 @@ async function processTurn(business, messages, state, apiKey) {
     let unit = typeof result.agreed_unit_price === "number" && result.agreed_unit_price > 0
       ? result.agreed_unit_price : priceAt(p, state.stepIndex);
     unit = r2(Math.min(unit, list));
+
+    // A close during the hold phase at anything below list is really an
+    // early concession wearing a different action name — treat it as one.
+    if (holdActive && unit < list) {
+      state.holdCount = (state.holdCount || 0) + 1;
+      const correction = `CORRECTION: You may NOT give a discount yet — this is refusal ${state.holdCount} of ${HOLD_TURNS}. Decline calmly and professionally, citing the product's quality/value. Do not name any new price. Action must be "reply".`;
+      result = await callModel(sys, turnPrompt(state, catalog, profile, messages, correction), apiKey);
+      return { reply: result.reply || "…", state };
+    }
     const minAllowed = discountAllowed(state, p) ? floorPrice(p) : list;
     const total = unit * qty;
     if (qty && qty < smallMin) {
@@ -312,7 +376,7 @@ module.exports = async (req, res) => {
     if (!business || !business.profile) return res.status(400).json({ error: "Missing business config" });
 
     const st = Object.assign(
-      { productId: null, quantity: null, stepIndex: 0, status: "negotiating", pendingAskPct: null, agreedPrice: null },
+      { productId: null, quantity: null, stepIndex: 0, status: "negotiating", pendingAskPct: null, agreedPrice: null, holdCount: 0 },
       state || {});
 
     let out;
