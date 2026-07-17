@@ -17,7 +17,7 @@
   <a class="brand" href="index.html"><span class="brand-mark">◆</span> DealAmigo</a>
   <div class="app-bar-right">
     <span class="role-pill">Buyer</span>
-    <a class="app-logout" href="index.html">Log out</a>
+    <a class="app-logout" href="index.html" id="logout">Log out</a>
   </div>
 </header>
 
@@ -29,18 +29,24 @@
       <span class="ss-ic">🔍</span>
       <input type="text" placeholder="Search shops or products…">
     </div>
-    <div class="shops-filters">
-      <button class="filter active">All</button>
-      <button class="filter">Stationery</button>
-      <button class="filter">Hardware</button>
-      <button class="filter">Packaging</button>
-      <button class="filter">Groceries</button>
+    <div class="shops-filters" id="filters">
+      <button class="filter active" data-cat="all">All</button>
+      <button class="filter" data-cat="Stationery">Stationery</button>
+      <button class="filter" data-cat="Hardware">Hardware</button>
+      <button class="filter" data-cat="Groceries">Groceries</button>
+      <button class="filter" data-cat="Electronics">Electronics</button>
     </div>
   </div>
 
   <div class="shop-grid" id="shopGrid"></div>
 </main>
 
+<script type="module">
+  import { requireAuth, signOut } from "./auth.js";
+  requireAuth("");
+  document.getElementById("logout").addEventListener("click", (e) => { e.preventDefault(); signOut(""); });
+</script>
+<script src="data.js"></script>
 <script src="shops.js"></script>
 </body>
 </html>

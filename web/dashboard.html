@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Owner dashboard · DealAmigo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="dashboard.css">
+</head>
+<body class="dash-body">
+
+<header class="app-bar">
+  <a class="brand" href="index.html"><span class="brand-mark">◆</span> DealAmigo</a>
+  <div class="app-bar-right">
+    <label class="biz-switch">
+      <span>Business</span>
+      <select id="bizSelect"></select>
+    </label>
+    <button class="btn btn-outline small" id="addBizBtn">+ Add business</button>
+    <span class="role-pill owner">Owner</span>
+    <a class="app-logout" href="index.html" id="logout">Log out</a>
+  </div>
+</header>
+
+<nav class="dash-tabs">
+  <button class="dtab active" data-tab="overview">Overview</button>
+  <button class="dtab" data-tab="transactions">Transactions</button>
+  <button class="dtab" data-tab="approvals">Approvals <span class="dbadge hidden" id="apprBadge">0</span></button>
+  <button class="dtab" data-tab="settings">Settings &amp; floor</button>
+</nav>
+
+<main class="dash-main">
+  <section id="tab-overview" class="dpanel"></section>
+  <section id="tab-transactions" class="dpanel hidden"></section>
+  <section id="tab-approvals" class="dpanel hidden"></section>
+  <section id="tab-settings" class="dpanel hidden"></section>
+</main>
+
+<!-- add business modal -->
+<div class="modal hidden" id="addModal">
+  <div class="modal-card wide">
+    <div class="modal-title">Add a business</div>
+    <p class="muted">List a new shop under your account. Add a few products to start; the AI agent will sell exactly what you list.</p>
+    <div class="form-grid">
+      <label>Business name <input id="nbName" placeholder="e.g. Ganesh Traders"></label>
+      <label>Category <input id="nbCat" placeholder="e.g. Groceries"></label>
+      <label class="wide">Tagline <input id="nbTag" placeholder="e.g. Wholesale staples & pulses"></label>
+      <label class="wide">About <input id="nbAbout" placeholder="One line describing your shop"></label>
+      <label>WhatsApp (digits) <input id="nbWa" placeholder="9198xxxxxxxx"></label>
+      <label>Logo emoji <input id="nbLogo" placeholder="🏪" maxlength="4"></label>
+      <label>Max discount % <input id="nbMax" type="number" value="15" min="0" max="90"></label>
+      <label>Min order qty <input id="nbMin" type="number" value="5" min="1"></label>
+      <label>Big-order limit (₹) <input id="nbBig" type="number" value="15000" min="1000" step="500"></label>
+    </div>
+    <div class="section-label" style="margin-top:14px">Products</div>
+    <div class="nb-prod-wrap">
+      <table class="inv-table" id="nbProdTable">
+        <thead><tr><th>Product</th><th>Unit</th><th>Price</th><th>Max&nbsp;disc&nbsp;%</th><th>Bulk&nbsp;min</th><th>Stock</th><th>Selling point</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <button class="btn btn-outline small" id="nbAddRow">+ Add product</button>
+    <div class="modal-actions">
+      <button class="btn ghost" id="nbCancel">Cancel</button>
+      <button class="btn primary" id="nbSave">Create business</button>
+    </div>
+  </div>
+</div>
+
+<!-- toast -->
+<div class="toast hidden" id="toast"></div>
+
+<script src="data.js"></script>
+<script type="module" src="dashboard.js"></script>
+</body>
+</html>

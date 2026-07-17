@@ -45,22 +45,21 @@
     <div class="auth-divider"><span>or</span></div>
 
     <!-- email form -->
-    <form class="auth-form" onsubmit="return false">
+    <form class="auth-form" id="authForm">
+      <label class="name-field" id="nameField" hidden>Full name
+        <input type="text" id="fullName" placeholder="Your name" autocomplete="name">
+      </label>
       <label>Email
-        <input type="email" placeholder="you@example.com" autocomplete="email">
+        <input type="email" id="email" placeholder="you@example.com" autocomplete="email" required>
       </label>
       <label>Password
-        <input type="password" placeholder="••••••••" autocomplete="current-password">
+        <input type="password" id="password" placeholder="••••••••" autocomplete="current-password" required minlength="6">
       </label>
-      <div class="auth-row">
-        <label class="rem"><input type="checkbox"> Remember me</label>
-        <a href="#" class="auth-link">Forgot password?</a>
-      </div>
-      <button class="btn btn-green btn-lg auth-submit" type="submit">Log in</button>
+      <div class="auth-msg" id="authMsg" hidden></div>
+      <button class="btn btn-green btn-lg auth-submit" id="submitBtn" type="submit">Log in</button>
     </form>
 
-    <p class="auth-foot">New here? <a href="#" class="auth-link" id="signupLink">Create an account</a></p>
-    <p class="auth-demo">Demo build — auth is not yet wired to a backend.</p>
+    <p class="auth-foot" id="modeFoot">New here? <a href="#" class="auth-link" id="modeToggle">Create an account</a></p>
   </div>
 
   <div class="auth-aside">
@@ -77,6 +76,6 @@
   </div>
 </div>
 
-<script src="login.js"></script>
+<script type="module" src="login.js"></script>
 </body>
 </html>

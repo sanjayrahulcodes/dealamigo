@@ -1,36 +1,58 @@
-/* DealAmigo shops directory — placeholder listing.
-   CROSSWORD is the live shop and opens the working chatbot; the rest are
-   demo placeholders until the multi-tenant backend lands. */
-const SHOPS = [
-  { name: "CROSSWORD", cat: "Stationery", ic: "✏️", blurb: "Books, notebooks, pens & office supplies", dist: "1.2 km", rating: "4.8", live: true, href: "shop/index.html" },
-  { name: "Anand Hardware", cat: "Hardware", ic: "🔩", blurb: "Fasteners, tools, fittings & more", dist: "2.0 km", rating: "4.6", live: false },
-  { name: "PackWell Supplies", cat: "Packaging", ic: "📦", blurb: "Boxes, tape, bubble wrap, mailers", dist: "3.4 km", rating: "4.7", live: false },
-  { name: "Sri Textiles", cat: "Textiles", ic: "🧵", blurb: "Fabric, thread, trims, wholesale rolls", dist: "2.8 km", rating: "4.5", live: false },
-  { name: "Daily Mart Wholesale", cat: "Groceries", ic: "🛒", blurb: "Staples & bulk goods for shops", dist: "0.9 km", rating: "4.4", live: false },
-  { name: "Volt Electronics", cat: "Electronics", ic: "🔌", blurb: "Components, cables, accessories", dist: "4.1 km", rating: "4.6", live: false },
-];
+/* DealAmigo shops directory — lists all businesses from the shared data layer.
+   Each card shows an overview and opens that shop's page (with chat). */
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const grid = document.getElementById("shopGrid");
+const all = DA.allBusinesses();
 
-const stars = (r) => "★".repeat(Math.round(Number(r))) + "☆".repeat(5 - Math.round(Number(r)));
+let activeCat = "all";
+let query = "";
 
-document.getElementById("shopGrid").innerHTML = SHOPS.map((s) => {
-  const badge = s.live
-    ? `<span class="shop-badge live">● Live</span>`
-    : `<span class="shop-badge soon">Coming soon</span>`;
-  const action = s.live
-    ? `<a class="btn btn-green shop-open" href="${s.href}">Open shop →</a>`
-    : `<button class="btn btn-outline shop-open" disabled>Coming soon</button>`;
-  return `<div class="shop-card ${s.live ? "" : "is-soon"}">
-    <div class="shop-top">
-      <div class="shop-logo">${s.ic}</div>
-      ${badge}
-    </div>
-    <div class="shop-name">${s.name}</div>
-    <div class="shop-cat">${s.cat}</div>
-    <div class="shop-blurb">${s.blurb}</div>
-    <div class="shop-meta">
-      <span class="shop-rating">${stars(s.rating)} <b>${s.rating}</b></span>
-      <span class="shop-dist">📍 ${s.dist}</span>
-    </div>
-    ${action}
-  </div>`;
-}).join("");
+function stars(r) { const n = Math.round(r || 5); return "★".repeat(n) + "☆".repeat(5 - n); }
+
+function matches(b) {
+  const catOk = activeCat === "all" || b.category === activeCat;
+  if (!catOk) return false;
+  if (!query) return true;
+  const hay = (b.profile.business_name + " " + b.category + " " + b.about + " " +
+    b.inventory.map((p) => p.name).join(" ")).toLowerCase();
+  return hay.includes(query);
+}
+
+function render() {
+  const list = all.filter(matches);
+  if (!list.length) { grid.innerHTML = `<p class="muted" style="grid-column:1/-1">No shops match your search.</p>`; return; }
+  grid.innerHTML = list.map((b) => {
+    const from = Math.min(...b.inventory.map((p) => Number(p.list_price)));
+    return `<a class="shop-card" href="shop/index.html?shop=${encodeURIComponent(b.slug)}&chat=1">
+      <div class="shop-top">
+        <div class="shop-logo">${b.logo || "🏪"}</div>
+        <span class="shop-badge live">● Open</span>
+      </div>
+      <div class="shop-name">${esc(b.profile.business_name)}</div>
+      <div class="shop-cat">${esc(b.category)}</div>
+      <div class="shop-blurb">${esc(b.about || b.profile.tagline || "")}</div>
+      <div class="shop-meta">
+        <span class="shop-rating">${stars(b.rating)} <b>${b.rating || 5}</b></span>
+        <span class="shop-dist">📍 ${esc(b.distance || "")}</span>
+      </div>
+      <div class="shop-foot">
+        <span class="shop-from">from ${"₹"}${from}</span>
+        <span class="shop-open-btn">Chat with us →</span>
+      </div>
+    </a>`;
+  }).join("");
+}
+
+document.getElementById("filters").addEventListener("click", (e) => {
+  const btn = e.target.closest(".filter");
+  if (!btn) return;
+  document.querySelectorAll(".filter").forEach((f) => f.classList.toggle("active", f === btn));
+  activeCat = btn.dataset.cat;
+  render();
+});
+document.querySelector(".shops-search input").addEventListener("input", (e) => {
+  query = e.target.value.trim().toLowerCase();
+  render();
+});
+
+render();

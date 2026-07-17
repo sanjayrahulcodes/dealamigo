@@ -3,148 +3,55 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>DealAmigo — your shop's AI sales agent</title>
+<title>Shop · DealAmigo</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../styles.css">
 <link rel="stylesheet" href="style.css">
 </head>
-<body>
+<body class="shop-body">
 
-<!-- ======================= CUSTOMER VIEW ======================= -->
-<main id="customer-view">
-  <header class="shop-hero">
-    <div class="hero-top">
-      <div>
-        <div class="shop-name" id="c-shop-name">…</div>
-        <div class="shop-tagline" id="c-shop-tagline"></div>
-      </div>
-      <div class="online-pill"><span class="dot"></span> online</div>
-    </div>
-    <div class="hero-note">Chat in Hindi, Telugu, Tamil or English — bargain like you would at the counter.</div>
-  </header>
-
-  <section class="products">
-    <div class="section-label">What we sell</div>
-    <div class="product-strip" id="product-strip"></div>
-  </section>
-
-  <section class="chat-card">
-    <div class="chat-scroll" id="chat-scroll">
-      <div id="chat-log"></div>
-      <div id="typing" class="chat-row agent hidden">
-        <div class="bubble agent typing-bubble"><span></span><span></span><span></span></div>
-      </div>
-    </div>
-
-    <div id="approval-wait" class="banner hidden">
-      Checking with the owner about your request — hold on a moment.
-    </div>
-
-    <div id="order-done" class="order-done hidden"></div>
-
-    <form id="chat-form" class="chat-input">
-      <input id="chat-text" type="text" autocomplete="off"
-             placeholder="Type your message… koi bhi bhasha chalegi" />
-      <button type="submit" aria-label="Send">
-        <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M2.01 21 23 12 2.01 3 2 10l15 2-15 2z"/></svg>
-      </button>
-    </form>
-  </section>
-
-  <footer class="page-foot">
-    <span>Powered by <strong>DealAmigo</strong></span>
-    <button class="linkish" id="owner-link">Shop owner? Sign in</button>
-  </footer>
-</main>
-
-<!-- ======================= OWNER PIN GATE ======================= -->
-<div id="pin-modal" class="modal hidden">
-  <div class="modal-card">
-    <div class="modal-title">Owner sign-in</div>
-    <p class="muted">Enter your 4-digit owner PIN to open the business console.</p>
-    <input id="pin-input" type="password" inputmode="numeric" maxlength="8" placeholder="PIN" />
-    <div id="pin-error" class="pin-error hidden">Wrong PIN, try again.</div>
-    <div class="modal-actions">
-      <button class="btn ghost" id="pin-cancel">Cancel</button>
-      <button class="btn primary" id="pin-submit">Unlock</button>
-    </div>
+<header class="app-bar">
+  <a class="brand" href="../shops.html"><span class="brand-mark">◆</span> DealAmigo</a>
+  <div class="app-bar-right">
+    <a class="app-link" href="../shops.html">← All shops</a>
   </div>
-</div>
+</header>
 
-<!-- ======================= BUSINESS CONSOLE ======================= -->
-<main id="business-view" class="hidden">
-  <header class="shop-hero owner">
-    <div class="hero-top">
+<main class="shop-main" id="shopMain"><!-- filled by JS --></main>
+
+<!-- chat drawer -->
+<div class="chat-scrim hidden" id="chatScrim"></div>
+<aside class="chat-drawer hidden" id="chatDrawer" aria-label="Chat">
+  <div class="cd-head">
+    <div class="cd-head-left">
+      <div class="cd-avatar" id="cdAvatar">C</div>
       <div>
-        <div class="shop-name" id="b-shop-name">…</div>
-        <div class="shop-tagline">Owner console — customers never see this.</div>
+        <div class="cd-name" id="cdName">Shop</div>
+        <div class="cd-status"><span class="dot"></span> AI agent · online</div>
       </div>
-      <button class="btn ghost small" id="exit-console">Exit console</button>
     </div>
-  </header>
+    <button class="cd-close" id="cdClose" aria-label="Close">✕</button>
+  </div>
 
-  <nav class="tabs">
-    <button class="tab active" data-tab="approvals">Approvals <span id="appr-badge" class="badge hidden">1</span></button>
-    <button class="tab" data-tab="inventory">Inventory</button>
-    <button class="tab" data-tab="profile">Profile &amp; limits</button>
-    <button class="tab" data-tab="deals">Deals</button>
-  </nav>
+  <div class="cd-scroll" id="chatScroll">
+    <div id="chatLog"></div>
+    <div id="typing" class="chat-row agent hidden"><div class="bubble agent typing"><span></span><span></span><span></span></div></div>
+  </div>
 
-  <section id="tab-approvals" class="tab-panel">
-    <div id="approval-card"></div>
-  </section>
+  <div id="approvalWait" class="cd-banner hidden">The shop is checking with the owner about your request — one moment…</div>
+  <div id="orderDone" class="cd-done hidden"></div>
 
-  <section id="tab-inventory" class="tab-panel hidden">
-    <p class="muted">This table is everything the agent knows how to sell. The agent can never
-      discount past the max you set (further capped by the global limit in Profile).</p>
-    <div class="inv-table-wrap">
-      <table class="inv-table" id="inv-table">
-        <thead><tr>
-          <th>Product</th><th>Unit</th><th>Price</th><th>Max&nbsp;disc&nbsp;%</th>
-          <th>Bulk&nbsp;min</th><th>Stock</th><th>Selling points</th><th></th>
-        </tr></thead>
-        <tbody></tbody>
-      </table>
-    </div>
-    <div class="row-gap">
-      <button class="btn ghost" id="inv-add">+ Add product</button>
-      <button class="btn primary" id="inv-save">Save inventory</button>
-    </div>
-    <div id="inv-saved" class="saved-note hidden">Saved — the agent sells exactly this list now.</div>
-  </section>
+  <form class="cd-input" id="chatForm">
+    <input id="chatText" type="text" autocomplete="off" placeholder="Message the shop… any language">
+    <button type="submit" aria-label="Send">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M2.01 21 23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+    </button>
+  </form>
+</aside>
 
-  <section id="tab-profile" class="tab-panel hidden">
-    <div class="form-grid">
-      <label>Business name <input id="f-name"></label>
-      <label>Tagline <input id="f-tagline"></label>
-      <label class="wide">Address <input id="f-address"></label>
-      <label>Phone <input id="f-phone"></label>
-      <label>Email <input id="f-email"></label>
-      <label>WhatsApp (digits, country code first) <input id="f-whatsapp" placeholder="9198xxxxxxxx"></label>
-      <label>Owner PIN <input id="f-pin" maxlength="8"></label>
-    </div>
-    <div class="section-label" style="margin-top:18px">Negotiation limits — the agent can never cross these</div>
-    <div class="form-grid">
-      <label>Global max discount % <input id="f-maxdisc" type="number" min="0" max="90"></label>
-      <label>Min order qty (below → approval) <input id="f-smallmin" type="number" min="1"></label>
-      <label>Big-order limit (₹) <input id="f-bigmax" type="number" min="1000" step="500"></label>
-    </div>
-    <div class="section-label" style="margin-top:18px">Connection</div>
-    <div class="form-grid">
-      <label class="wide">OpenRouter API key (only needed if the server has none set)
-        <input id="f-apikey" type="password" placeholder="sk-or-v1-…"></label>
-    </div>
-    <div class="row-gap">
-      <button class="btn primary" id="prof-save">Save profile</button>
-    </div>
-    <div id="prof-saved" class="saved-note hidden">Saved — letterhead, agent intro and limits updated.</div>
-  </section>
-
-  <section id="tab-deals" class="tab-panel hidden">
-    <div id="deals-list"></div>
-  </section>
-</main>
-
+<script src="../data.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

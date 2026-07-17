@@ -45,6 +45,10 @@
 .auth-link{color:var(--green);font-weight:600}
 .auth-link:hover{text-decoration:underline}
 .auth-submit{width:100%;margin-top:4px}
+.auth-msg{font-size:.88rem;padding:10px 12px;border-radius:10px;margin-top:2px}
+.auth-msg.err{background:#fdecea;color:#9b2818;border:1px solid #f5c6bd}
+.auth-msg.ok{background:var(--green-l);color:var(--green-d);border:1px solid #bcdccb}
+.name-field[hidden]{display:none}
 .auth-foot{text-align:center;margin-top:22px;color:var(--ink-soft);font-size:.95rem}
 .auth-demo{text-align:center;margin-top:14px;color:var(--muted);font-size:.78rem;
   background:#fff;border:1px dashed var(--line);border-radius:10px;padding:8px}

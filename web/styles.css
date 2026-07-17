@@ -26,6 +26,7 @@ body{
 a{text-decoration:none;color:inherit}
 img{max-width:100%}
 h1,h2,h3{letter-spacing:-.03em;line-height:1.05}
+.hidden{display:none !important}
 
 /* ---- buttons ---- */
 .btn{
