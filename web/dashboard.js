@@ -1,6 +1,6 @@
 /* DealAmigo owner dashboard — analytics, transactions, live approvals,
    floor/settings, and add-business. Business + deal data come from the shared
-   data layer (window.DA); auth/session from Supabase (auth.js). */
+   Supabase-backed data layer (window.DA); auth/session from auth.js. */
 import { requireAuth, getSession, signOut } from "./auth.js";
 
 const RS = "₹";
@@ -8,7 +8,7 @@ const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const inr = (n) => Number(n || 0).toLocaleString("en-IN");
 
-let ownerEmail = "owner@dealamigo.demo";
+let ownerId = null;
 let businesses = [];
 let active = null; // active business slug
 let apprPollTimer = null;
@@ -16,26 +16,31 @@ let apprPollTimer = null;
 // ---------------- boot ----------------
 (async function boot() {
   const session = await requireAuth(""); // bounce to login if not signed in
-  if (session) ownerEmail = session.user.email || ownerEmail;
+  if (session) ownerId = session.user.id;
   $("logout").addEventListener("click", (e) => { e.preventDefault(); signOut(""); });
-  loadBusinesses();
   wireChrome();
-  render();
-  apprPollTimer = setInterval(refreshApprovalsBadge, 2000);
+  $("tab-overview").innerHTML = `<p class="muted">Loading your businesses…</p>`;
+  await loadBusinesses();
+  await render();
+  apprPollTimer = setInterval(refreshApprovalsBadge, 3000);
 })();
 
-function loadBusinesses() {
-  businesses = DA.businessesForOwner(ownerEmail);
+async function loadBusinesses() {
+  try {
+    businesses = await DA.businessesForOwner(ownerId);
+  } catch (e) {
+    businesses = [];
+  }
   if (!businesses.length) businesses = DA.SEED.slice();
   if (!active || !businesses.find((b) => b.slug === active)) active = businesses[0].slug;
   const sel = $("bizSelect");
   sel.innerHTML = businesses.map((b) => `<option value="${b.slug}">${esc(b.profile.business_name)}</option>`).join("");
   sel.value = active;
 }
-const activeBiz = () => DA.getBusiness(active) || businesses.find((b) => b.slug === active);
+const activeBiz = () => businesses.find((b) => b.slug === active);
 
 function wireChrome() {
-  $("bizSelect").addEventListener("change", (e) => { active = e.target.value; render(); });
+  $("bizSelect").addEventListener("change", async (e) => { active = e.target.value; await render(); });
   document.querySelectorAll(".dtab").forEach((t) => t.addEventListener("click", () => {
     document.querySelectorAll(".dtab").forEach((x) => x.classList.toggle("active", x === t));
     document.querySelectorAll(".dpanel").forEach((p) => p.classList.add("hidden"));
@@ -47,13 +52,20 @@ function wireChrome() {
   $("nbSave").addEventListener("click", saveNewBusiness);
 }
 
-function render() { renderOverview(); renderTransactions(); renderApprovals(); renderSettings(); refreshApprovalsBadge(); }
+async function render() {
+  renderOverview();
+  renderTransactions();
+  await renderApprovals();
+  renderSettings();
+  await refreshApprovalsBadge();
+}
 
 // ---------------- overview / analytics ----------------
-function renderOverview() {
+async function renderOverview() {
   const b = activeBiz();
-  const a = DA.analytics(active);
-  const pending = DA.getPending(active) && !DA.getPending(active).decision ? 1 : 0;
+  $("tab-overview").innerHTML = `<p class="muted">Loading analytics…</p>`;
+  const a = await DA.analytics(active);
+  const pending = (await DA.listPendingApprovals()).filter((r) => r.slug === active).length;
   const maxDay = Math.max(1, ...a.days.map((d) => d.total));
   $("tab-overview").innerHTML = `
     <div class="dhead">
@@ -86,8 +98,9 @@ function renderOverview() {
 const kpi = (label, val, ic) => `<div class="kpi"><div class="kpi-ic">${ic}</div><div class="kpi-num">${val}</div><div class="kpi-lab">${label}</div></div>`;
 
 // ---------------- transactions ----------------
-function renderTransactions() {
-  const deals = DA.getDeals(active);
+async function renderTransactions() {
+  $("tab-transactions").innerHTML = `<p class="muted">Loading transactions…</p>`;
+  const deals = await DA.getDeals(active);
   $("tab-transactions").innerHTML = `
     <div class="dhead"><div><h1>Transactions</h1><p class="muted">Every closed deal, newest first.</p></div></div>
     <div class="table-wrap">
@@ -106,27 +119,27 @@ function renderTransactions() {
     </div>`;
 }
 
-// ---------------- approvals (live bus) ----------------
-function renderApprovals() {
+// ---------------- approvals (live Supabase queue) ----------------
+async function renderApprovals() {
   const box = $("tab-approvals");
   const managedSlugs = businesses.map((b) => b.slug);
-  const pending = DA.allPending().filter((r) => managedSlugs.includes(r.slug) && !r.decision);
+  const pending = (await DA.listPendingApprovals()).filter((r) => managedSlugs.includes(r.slug));
   box.innerHTML = `
     <div class="dhead"><div><h1>Special-request approvals</h1><p class="muted">When the agent hits your floor, the deal waits here for your decision.</p></div></div>
     <div id="apprList">${pending.length ? pending.map(apprCard).join("") : `<div class="dcard empty">No approvals waiting. You're all caught up. ✅</div>`}</div>`;
   pending.forEach((r) => {
-    $(`ap-yes-${r.slug}`)?.addEventListener("click", () => decide(r.slug, "approve"));
-    $(`ap-no-${r.slug}`)?.addEventListener("click", () => decide(r.slug, "reject"));
+    $(`ap-yes-${r.id}`)?.addEventListener("click", () => decide(r, "approve"));
+    $(`ap-no-${r.id}`)?.addEventListener("click", () => decide(r, "reject"));
   });
 }
 
 function apprCard(r) {
-  const b = DA.getBusiness(r.slug);
+  const b = businesses.find((x) => x.slug === r.slug);
   const p = b?.inventory.find((x) => x.name === r.product);
   const askPrice = (r.askPct != null && p) ? Math.round(p.list_price * (1 - r.askPct / 100) * 100) / 100 : null;
   const total = (askPrice != null && r.quantity) ? askPrice * r.quantity : null;
   const last = [...(r.messages || [])].reverse().find((m) => m.role === "customer");
-  return `<div class="dcard appr">
+  return `<div class="dcard appr" id="card-${r.id}">
     <div class="appr-top"><div class="appr-shop">${b?.logo || "🏪"} ${esc(r.business_name)}</div><span class="appr-time">just now</span></div>
     <div class="appr-body">
       Customer wants ${r.askPct != null ? `<b>~${r.askPct}% off</b>` : "a special price"}${r.product ? ` on <b>${esc(r.product)}</b>` : ""}${r.quantity ? `, quantity <b>${r.quantity}</b>` : ""}.
@@ -134,44 +147,43 @@ function apprCard(r) {
       ${last ? `<div class="appr-quote">“${esc(last.text)}”</div>` : ""}
     </div>
     <div class="appr-actions">
-      <button class="btn primary" id="ap-yes-${r.slug}">Approve</button>
-      <button class="btn danger" id="ap-no-${r.slug}">Reject — hold floor</button>
+      <button class="btn primary" id="ap-yes-${r.id}">Approve</button>
+      <button class="btn danger" id="ap-no-${r.id}">Reject — hold floor</button>
     </div>
   </div>`;
 }
 
-async function decide(slug, op) {
-  const card = $(`ap-yes-${slug}`)?.closest(".dcard");
+async function decide(r, op) {
+  const card = $(`card-${r.id}`);
   if (card) card.innerHTML = `<p class="muted">Agent is replying to the customer…</p>`;
-  const rec = DA.getPending(slug);
-  const b = DA.getBusiness(slug);
-  if (!rec || !b) return;
+  const b = businesses.find((x) => x.slug === r.slug);
+  if (!b) return;
   try {
     const resp = await fetch("/api/chat", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ op, business: { profile: b.profile, inventory: b.inventory }, messages: rec.messages, state: rec.state }),
+      body: JSON.stringify({ op, business: { profile: b.profile, inventory: b.inventory }, messages: r.messages, state: r.state }),
     });
     const data = await resp.json();
     if (!resp.ok) throw new Error(data.error || "error");
     // Write the decision + reply + updated state back for the customer chat to pick up.
-    DA.setPending(slug, Object.assign({}, rec, { decision: op, reply: data.reply, state: data.state, resolvedAt: Date.now() }));
+    await DA.resolveApproval(r.id, op, data.reply, data.state);
     toast(op === "approve" ? "Deal approved — customer notified." : "Held at floor — customer notified.");
-    renderApprovals(); refreshApprovalsBadge();
+    await renderApprovals(); await refreshApprovalsBadge();
   } catch (e) {
     if (card) card.innerHTML = `<p class="muted">Error: ${esc(e.message)}</p>`;
   }
 }
 
-function refreshApprovalsBadge() {
+async function refreshApprovalsBadge() {
   const managedSlugs = businesses.map((b) => b.slug);
-  const n = DA.allPending().filter((r) => managedSlugs.includes(r.slug) && !r.decision).length;
+  const n = (await DA.listPendingApprovals()).filter((r) => managedSlugs.includes(r.slug)).length;
   const badge = $("apprBadge");
   badge.textContent = n;
   badge.classList.toggle("hidden", n === 0);
   // keep the approvals panel fresh if it's open
   if (!$("tab-approvals").classList.contains("hidden")) {
     const shown = $("apprList")?.querySelectorAll(".appr").length || 0;
-    if (shown !== n) renderApprovals();
+    if (shown !== n) await renderApprovals();
   }
 }
 
@@ -201,7 +213,8 @@ function renderSettings() {
       <p class="muted" style="margin-top:4px">Get a Key ID from your Razorpay dashboard (Settings → API Keys). Leave blank to keep "Pay now" off and rely on WhatsApp / pay-on-delivery instead.</p>
       <button class="btn primary" id="s-save" style="margin-top:16px">Save settings</button>
     </div>`;
-  $("s-save").addEventListener("click", () => {
+  $("s-save").addEventListener("click", async () => {
+    $("s-save").disabled = true; $("s-save").textContent = "Saving…";
     const patch = { profile: Object.assign({}, p, {
       business_name: $("s-name").value.trim() || p.business_name,
       tagline: $("s-tag").value.trim(), address: $("s-addr").value.trim(),
@@ -211,10 +224,15 @@ function renderSettings() {
       big_order_threshold: Number($("s-big").value || 15000),
       razorpay_key_id: $("s-rzp").value.trim(),
     }) };
-    DA.updateBusiness(active, patch);
-    loadBusinesses();
-    toast("Settings saved.");
-    render();
+    try {
+      await DA.updateBusiness(active, patch);
+      await loadBusinesses();
+      toast("Settings saved — visible on every device now.");
+      await render();
+    } catch (e) {
+      toast("Couldn't save: " + e.message, true);
+      renderSettings();
+    }
   });
 }
 
@@ -240,7 +258,7 @@ function addProdRow(p = {}) {
   tr.querySelector(".inv-del").onclick = () => tr.remove();
   $("nbProdTable").querySelector("tbody").appendChild(tr);
 }
-function saveNewBusiness() {
+async function saveNewBusiness() {
   const name = $("nbName").value.trim();
   if (!name) { toast("Give your business a name.", true); return; }
   const inventory = [...$("nbProdTable").querySelectorAll("tbody tr")].map((tr) => {
@@ -249,22 +267,29 @@ function saveNewBusiness() {
     return o;
   }).filter((o) => o.name && o.list_price > 0);
   if (!inventory.length) { toast("Add at least one product with a price.", true); return; }
-  const biz = DA.addBusiness({
-    logo: $("nbLogo").value.trim() || "🏪", category: $("nbCat").value.trim() || "General",
-    about: $("nbAbout").value.trim(),
-    profile: {
-      business_name: name, tagline: $("nbTag").value.trim(),
-      address: "", phone: "", email: "", whatsapp: $("nbWa").value.replace(/\D/g, ""), pin: "1234",
-      max_discount_pct: Number($("nbMax").value || 15), small_order_min: Number($("nbMin").value || 5),
-      big_order_threshold: Number($("nbBig").value || 15000),
-    },
-    inventory,
-  }, ownerEmail);
-  $("addModal").classList.add("hidden");
-  active = biz.slug;
-  loadBusinesses();
-  toast(`${name} added — now selling on DealAmigo.`);
-  render();
+  $("nbSave").disabled = true; $("nbSave").textContent = "Creating…";
+  try {
+    const biz = await DA.addBusiness({
+      logo: $("nbLogo").value.trim() || "🏪", category: $("nbCat").value.trim() || "General",
+      about: $("nbAbout").value.trim(),
+      profile: {
+        business_name: name, tagline: $("nbTag").value.trim(),
+        address: "", phone: "", email: "", whatsapp: $("nbWa").value.replace(/\D/g, ""), pin: "1234",
+        max_discount_pct: Number($("nbMax").value || 15), small_order_min: Number($("nbMin").value || 5),
+        big_order_threshold: Number($("nbBig").value || 15000),
+      },
+      inventory,
+    }, ownerId);
+    $("addModal").classList.add("hidden");
+    active = biz.slug;
+    await loadBusinesses();
+    toast(`${name} added — live on every device now.`);
+    await render();
+  } catch (e) {
+    toast("Couldn't create business: " + e.message, true);
+  } finally {
+    $("nbSave").disabled = false; $("nbSave").textContent = "Create business";
+  }
 }
 
 // ---------------- toast ----------------
@@ -273,6 +298,7 @@ function toast(msg, bad) {
   const t = $("toast");
   t.textContent = msg;
   t.className = "toast" + (bad ? " bad" : "");
+  t.classList.remove("hidden");
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => t.classList.add("hidden"), 2800);
 }

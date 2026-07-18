@@ -1,20 +1,18 @@
-/* DealAmigo shared data layer (window.DA).
-   Loadable from any page via <script src>. Holds the seed businesses and a
-   localStorage overlay for owner-added shops, closed deals, and the pending-
-   approval bus that connects the customer chat to the owner dashboard.
-   (Single-browser for the demo; a clean seam to swap for Supabase later.) */
+/* DealAmigo shared data layer (window.DA) — Supabase-backed.
+   Loadable from any page via <script src>. Businesses, products, deals and
+   the live approval queue all live in Postgres now, so a change made on one
+   device (e.g. adding a business, closing a deal, resolving an approval)
+   shows up on any other device after a refresh — no more localStorage
+   silo per browser. Requires the Supabase UMD script tag loaded first. */
 (function () {
-  const LS = {
-    added: "da_businesses_added",
-    deals: "da_deals",
-    pending: "da_pending",
-    seededDeals: "da_seeded_deals_v1",
-  };
-  const rd = (k, f) => { try { return JSON.parse(localStorage.getItem(k)) ?? f; } catch { return f; } };
-  const wr = (k, v) => localStorage.setItem(k, JSON.stringify(v));
+  const SUPABASE_URL = "https://byrmunbfghezfonkqmqs.supabase.co";
+  const SUPABASE_ANON =
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ5cm11bmJmZ2hlemZvbmtxbXFzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQyODE3MjYsImV4cCI6MjA5OTg1NzcyNn0.0SJaM7BDWDgi7NkG-Mw2elEwfdruX2UZBwItNJTFgTQ";
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+
   const slugify = (n) => String(n).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "shop";
 
-  // ---------------- seed businesses (4 fields) ----------------
+  // ---------------- seed catalog (used once, to populate an empty DB) ----------------
   const SEED = [
     {
       slug: "crossword", logo: "✏️", category: "Stationery", rating: 4.8, distance: "1.2 km",
@@ -81,110 +79,218 @@
       ],
     },
   ];
-  const seedMap = Object.fromEntries(SEED.map((b) => [b.slug, b]));
 
-  // ---------------- businesses (seed + owner-added) ----------------
-  function addedBusinesses() { return rd(LS.added, []); }
-  function allBusinesses() { return [...SEED, ...addedBusinesses()]; }
-  function getBusiness(slug) {
-    // An owner's saved edits (added list) override the seed — otherwise
-    // Settings changes for the 4 demo shops would silently never apply.
-    const overridden = addedBusinesses().find((b) => b.slug === slug);
-    return overridden || seedMap[slug] || null;
+  // ---------------- row <-> app-shape mapping ----------------
+  function toBusiness(row, products) {
+    return {
+      slug: row.slug, logo: row.logo || "🏪", category: row.category || "General",
+      rating: row.rating || 5, distance: row.distance || "—", about: row.about || "",
+      ownerId: row.owner_id || null,
+      id: row.id,
+      profile: {
+        business_name: row.name, tagline: row.tagline || "", address: row.address || "",
+        phone: row.phone || "", email: row.email || "", whatsapp: row.whatsapp || "",
+        pin: row.pin || "1234", razorpay_key_id: row.razorpay_key_id || "",
+        max_discount_pct: Number(row.max_discount_pct || 0),
+        small_order_min: Number(row.small_order_min || 1),
+        big_order_threshold: Number(row.big_order_threshold || 15000),
+      },
+      inventory: (products || []).map((p) => ({
+        id: p.id, name: p.name, unit: p.unit || "piece", list_price: Number(p.list_price),
+        max_discount_pct: Number(p.max_discount_pct || 0), moq: Number(p.moq || 1),
+        stock: Number(p.stock || 0), pitch: p.pitch || "",
+      })),
+    };
   }
 
-  function addBusiness(input, ownerEmail) {
-    const added = addedBusinesses();
-    let slug = slugify(input.profile.business_name);
-    while (getBusiness(slug)) slug += "_" + Math.floor(Math.random() * 900 + 100);
-    const biz = { slug, logo: input.logo || "🏪", category: input.category || "General",
-      rating: 5.0, distance: "— km", about: input.about || "", ownerEmail: ownerEmail || null,
-      profile: input.profile, inventory: input.inventory || [] };
-    added.push(biz); wr(LS.added, added);
-    return biz;
-  }
-  function updateBusiness(slug, patch) {
-    const added = addedBusinesses();
-    const i = added.findIndex((b) => b.slug === slug);
-    if (i >= 0) { Object.assign(added[i], patch); wr(LS.added, added); return added[i]; }
-    // Editing a seed shop: store an override copy in the added list.
-    const seed = seedMap[slug];
-    if (seed) { const copy = JSON.parse(JSON.stringify(seed)); Object.assign(copy, patch); added.push(copy); wr(LS.added, added); return copy; }
-    return null;
+  async function fetchAllBusinesses() {
+    const { data: rows, error } = await sb.from("businesses").select("*, products(*)").order("created_at");
+    if (error) throw error;
+    return (rows || []).map((r) => toBusiness(r, r.products));
   }
 
-  // Businesses this owner manages. For the demo, an owner sees the 4 seed
-  // shops plus any they've added themselves.
-  function businessesForOwner(email) {
-    const added = addedBusinesses();
-    // Show the saved-edit version of each seed shop if one exists, so the
-    // dashboard's business switcher reflects renamed/edited shops too.
-    const seeds = SEED.map((b) => added.find((a) => a.slug === b.slug) || b);
-    const ownedAdded = added.filter((b) => b.ownerEmail === email && !SEED.find((s) => s.slug === b.slug));
-    return [...seeds, ...ownedAdded];
-  }
-
-  // ---------------- deals (transactions) ----------------
-  function seedDealsOnce() {
-    if (rd(LS.seededDeals, false)) return;
-    const all = {};
-    const products = (slug) => getBusiness(slug).inventory;
-    const now = Date.now();
+  // ---------------- one-time seed (only runs if the DB is empty) ----------------
+  let seeded = false;
+  async function ensureSeeded() {
+    if (seeded) return;
+    seeded = true;
+    const { count, error } = await sb.from("businesses").select("id", { count: "exact", head: true });
+    if (error || (count || 0) > 0) return; // already has data (or can't tell) — leave it alone
     for (const b of SEED) {
-      const list = [];
+      const { data: biz, error: bizErr } = await sb.from("businesses").insert({
+        slug: b.slug, name: b.profile.business_name, tagline: b.profile.tagline,
+        address: b.profile.address, phone: b.profile.phone, email: b.profile.email,
+        whatsapp: b.profile.whatsapp, pin: b.profile.pin, category: b.category,
+        logo: b.logo, rating: b.rating, distance: b.distance, about: b.about,
+        max_discount_pct: b.profile.max_discount_pct, small_order_min: b.profile.small_order_min,
+        big_order_threshold: b.profile.big_order_threshold, owner_id: null,
+      }).select().single();
+      if (bizErr || !biz) continue;
+      await sb.from("products").insert(b.inventory.map((p) => ({ ...p, business_id: biz.id })));
+      // A little sales history so the dashboard's analytics aren't empty on day one.
       const n = 9 + Math.floor(Math.random() * 6);
+      const histDeals = [];
       for (let i = 0; i < n; i++) {
-        const p = products(b.slug)[Math.floor(Math.random() * products(b.slug).length)];
+        const p = b.inventory[Math.floor(Math.random() * b.inventory.length)];
         const qty = p.moq * (1 + Math.floor(Math.random() * 6));
         const discPct = Math.round(Math.random() * (p.max_discount_pct || 8) * 10) / 10;
         const unit = Math.round(p.list_price * (1 - discPct / 100) * 100) / 100;
         const daysAgo = Math.floor(Math.random() * 28);
-        list.push({
+        histDeals.push({
+          business_id: biz.id,
           bill_no: b.profile.business_name.split(/\s+/).slice(0, 2).map((w) => w[0]).join("").toUpperCase() + "-" + (1000 + i),
-          closed_at: new Date(now - daysAgo * 864e5 - Math.random() * 6e7).toISOString().slice(0, 19),
           product: p.name, quantity: qty, unit_price: unit, list_price: p.list_price,
-          discount_pct: discPct, total: Math.round(unit * qty * 100) / 100, seeded: true,
+          discount_pct: discPct, total: Math.round(unit * qty * 100) / 100, status: "closed",
+          created_at: new Date(Date.now() - daysAgo * 864e5 - Math.random() * 6e7).toISOString(),
         });
       }
-      list.sort((a, b2) => (a.closed_at < b2.closed_at ? 1 : -1));
-      all[b.slug] = list;
+      if (histDeals.length) await sb.from("deals").insert(histDeals);
     }
-    wr(LS.deals, all); wr(LS.seededDeals, true);
-  }
-  function getDeals(slug) { seedDealsOnce(); return (rd(LS.deals, {})[slug]) || []; }
-  function addDeal(slug, deal) {
-    seedDealsOnce();
-    const all = rd(LS.deals, {});
-    (all[slug] = all[slug] || []).unshift(deal);
-    wr(LS.deals, all);
-  }
-  function markPaid(slug, billNo, paymentId) {
-    const all = rd(LS.deals, {});
-    const deal = (all[slug] || []).find((d) => d.bill_no === billNo);
-    if (deal) { deal.paid = true; deal.payment_id = paymentId; wr(LS.deals, all); }
   }
 
-  // ---------------- pending-approval bus ----------------
-  // Keyed by slug: { messages, state, product, quantity, askPct, createdAt,
-  //   decision: null|'approve'|'reject', reply: null|string, resolvedAt }
-  function getPending(slug) { return rd(LS.pending, {})[slug] || null; }
-  function allPending() { const m = rd(LS.pending, {}); return Object.entries(m).map(([slug, v]) => ({ slug, ...v })); }
-  function setPending(slug, rec) { const m = rd(LS.pending, {}); m[slug] = rec; wr(LS.pending, m); }
-  function clearPending(slug) { const m = rd(LS.pending, {}); delete m[slug]; wr(LS.pending, m); }
+  // ---------------- businesses ----------------
+  async function allBusinesses() { await ensureSeeded(); return fetchAllBusinesses(); }
+
+  async function getBusiness(slug) {
+    await ensureSeeded();
+    const { data: row, error } = await sb.from("businesses").select("*, products(*)").eq("slug", slug).maybeSingle();
+    if (error || !row) return null;
+    return toBusiness(row, row.products);
+  }
+
+  async function addBusiness(input, ownerId) {
+    let slug = slugify(input.profile.business_name);
+    // avoid collisions
+    for (let i = 0; i < 5; i++) {
+      const { data: exists } = await sb.from("businesses").select("id").eq("slug", slug).maybeSingle();
+      if (!exists) break;
+      slug = slugify(input.profile.business_name) + "_" + Math.floor(Math.random() * 900 + 100);
+    }
+    const { data: biz, error } = await sb.from("businesses").insert({
+      slug, name: input.profile.business_name, tagline: input.profile.tagline || "",
+      address: input.profile.address || "", phone: input.profile.phone || "",
+      email: input.profile.email || "", whatsapp: input.profile.whatsapp || "",
+      pin: input.profile.pin || "1234", category: input.category || "General",
+      logo: input.logo || "🏪", about: input.about || "", rating: 5.0, distance: "—",
+      max_discount_pct: input.profile.max_discount_pct || 15,
+      small_order_min: input.profile.small_order_min || 5,
+      big_order_threshold: input.profile.big_order_threshold || 15000,
+      owner_id: ownerId || null,
+    }).select().single();
+    if (error || !biz) throw error || new Error("Could not create business");
+    const inv = (input.inventory || []).filter((p) => p.name && p.list_price > 0);
+    if (inv.length) await sb.from("products").insert(inv.map((p) => ({ ...p, business_id: biz.id })));
+    return getBusiness(slug);
+  }
+
+  async function updateBusiness(slug, patch) {
+    const { data: row } = await sb.from("businesses").select("id").eq("slug", slug).maybeSingle();
+    if (!row) return null;
+    if (patch.profile) {
+      const p = patch.profile;
+      await sb.from("businesses").update({
+        name: p.business_name, tagline: p.tagline, address: p.address, phone: p.phone,
+        email: p.email, whatsapp: p.whatsapp, pin: p.pin, razorpay_key_id: p.razorpay_key_id,
+        max_discount_pct: p.max_discount_pct, small_order_min: p.small_order_min,
+        big_order_threshold: p.big_order_threshold,
+      }).eq("id", row.id);
+    }
+    if (patch.inventory) {
+      await sb.from("products").delete().eq("business_id", row.id);
+      const inv = patch.inventory.filter((p) => p.name && p.list_price > 0);
+      if (inv.length) await sb.from("products").insert(inv.map((p) => ({ ...p, business_id: row.id })));
+    }
+    return getBusiness(slug);
+  }
+
+  async function businessesForOwner() {
+    // In this demo every signed-in owner manages all businesses (no per-user
+    // silo yet — see README roadmap); this at least makes every shop visible
+    // and editable from any device, which is the bug being fixed here.
+    await ensureSeeded();
+    return fetchAllBusinesses();
+  }
+
+  // ---------------- deals (transactions) ----------------
+  async function getDeals(slug) {
+    const { data: biz } = await sb.from("businesses").select("id").eq("slug", slug).maybeSingle();
+    if (!biz) return [];
+    const { data: rows, error } = await sb.from("deals").select("*").eq("business_id", biz.id).order("created_at", { ascending: false });
+    if (error) return [];
+    return (rows || []).map((d) => ({
+      bill_no: d.bill_no, closed_at: (d.created_at || "").slice(0, 19), product: d.product,
+      quantity: d.quantity, unit_price: d.unit_price, list_price: d.list_price,
+      discount_pct: d.discount_pct, total: d.total, paid: d.paid, payment_id: d.payment_id,
+    }));
+  }
+
+  async function addDeal(slug, deal) {
+    const { data: biz } = await sb.from("businesses").select("id").eq("slug", slug).maybeSingle();
+    if (!biz) return;
+    await sb.from("deals").insert({
+      business_id: biz.id, bill_no: deal.bill_no, product: deal.product, quantity: deal.quantity,
+      unit_price: deal.unit_price, list_price: deal.list_price, discount_pct: deal.discount_pct,
+      total: deal.total, status: "closed",
+    });
+  }
+
+  async function markPaid(slug, billNo, paymentId) {
+    const { data: biz } = await sb.from("businesses").select("id").eq("slug", slug).maybeSingle();
+    if (!biz) return;
+    await sb.from("deals").update({ paid: true, payment_id: paymentId }).eq("business_id", biz.id).eq("bill_no", billNo);
+  }
+
+  // ---------------- approvals (live cross-device escalation queue) ----------------
+  async function createApproval(slug, rec) {
+    const { data: biz } = await sb.from("businesses").select("id").eq("slug", slug).maybeSingle();
+    if (!biz) return null;
+    const { data: row, error } = await sb.from("approvals").insert({
+      business_id: biz.id, business_slug: slug, business_name: rec.business_name,
+      messages: rec.messages, state: rec.state, product: rec.product,
+      quantity: rec.quantity, ask_pct: rec.askPct,
+    }).select().single();
+    if (error) throw error;
+    return fromApprovalRow(row);
+  }
+
+  async function getApproval(id) {
+    const { data: row, error } = await sb.from("approvals").select("*").eq("id", id).maybeSingle();
+    if (error || !row) return null;
+    return fromApprovalRow(row);
+  }
+
+  async function listPendingApprovals() {
+    const { data: rows, error } = await sb.from("approvals").select("*").is("decision", null).order("created_at", { ascending: false });
+    if (error) return [];
+    return (rows || []).map(fromApprovalRow);
+  }
+
+  async function resolveApproval(id, decision, reply, state) {
+    await sb.from("approvals").update({ decision, reply, state, resolved_at: new Date().toISOString() }).eq("id", id);
+  }
+
+  async function deleteApproval(id) { await sb.from("approvals").delete().eq("id", id); }
+
+  function fromApprovalRow(row) {
+    return {
+      id: row.id, slug: row.business_slug, business_name: row.business_name,
+      messages: row.messages || [], state: row.state, product: row.product,
+      quantity: row.quantity, askPct: row.ask_pct, decision: row.decision, reply: row.reply,
+      createdAt: row.created_at,
+    };
+  }
 
   // ---------------- analytics ----------------
-  function analytics(slug) {
-    const deals = getDeals(slug);
+  async function analytics(slug) {
+    const deals = await getDeals(slug);
     const revenue = deals.reduce((s, d) => s + (d.total || 0), 0);
     const orders = deals.length;
     const avgDisc = orders ? deals.reduce((s, d) => s + (d.discount_pct || 0), 0) / orders : 0;
-    // revenue over last 7 days (oldest→newest)
     const days = Array.from({ length: 7 }, (_, i) => {
       const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - (6 - i));
       return { label: d.toLocaleDateString("en-IN", { weekday: "short" }), key: d.toISOString().slice(0, 10), total: 0 };
     });
     for (const d of deals) { const k = (d.closed_at || "").slice(0, 10); const hit = days.find((x) => x.key === k); if (hit) hit.total += d.total || 0; }
-    // top products by revenue
     const byProd = {};
     for (const d of deals) byProd[d.product] = (byProd[d.product] || 0) + (d.total || 0);
     const topProducts = Object.entries(byProd).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([name, total]) => ({ name, total }));
@@ -192,8 +298,9 @@
   }
 
   window.DA = {
-    slugify, SEED, allBusinesses, getBusiness, addBusiness, updateBusiness,
-    businessesForOwner, getDeals, addDeal, markPaid,
-    getPending, allPending, setPending, clearPending, analytics,
+    slugify, SEED, allBusinesses, getBusiness, addBusiness, updateBusiness, businessesForOwner,
+    getDeals, addDeal, markPaid,
+    createApproval, getApproval, listPendingApprovals, resolveApproval, deleteApproval,
+    analytics,
   };
 })();

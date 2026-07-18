@@ -2,7 +2,7 @@
    Each card shows an overview and opens that shop's page (with chat). */
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const grid = document.getElementById("shopGrid");
-const all = DA.allBusinesses();
+let all = [];
 
 let activeCat = "all";
 let query = "";
@@ -55,4 +55,6 @@ document.querySelector(".shops-search input").addEventListener("input", (e) => {
   render();
 });
 
-render();
+grid.innerHTML = `<p class="muted" style="grid-column:1/-1">Loading shops…</p>`;
+DA.allBusinesses().then((list) => { all = list; render(); })
+  .catch((e) => { grid.innerHTML = `<p class="muted" style="grid-column:1/-1">Couldn't load shops: ${esc(e.message)}</p>`; });

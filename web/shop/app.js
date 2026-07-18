@@ -1,18 +1,20 @@
 /* DealAmigo customer shop — overview + chat drawer, multi-tenant by ?shop=slug.
-   Escalations are written to the shared approval bus (DA) and the chat polls
-   for the owner's decision made in the dashboard. */
+   Escalations are written to the shared Supabase approval queue (DA) and the
+   chat polls that specific row for the owner's decision made in the dashboard
+   — works across devices, not just the same browser. */
 
 const RS = "₹";
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
 const slug = new URLSearchParams(location.search).get("shop") || "crossword";
-const business = DA.getBusiness(slug) || DA.getBusiness("crossword");
+let business = null;
 
 let messages = [];
 let deal = freshDeal();
 let billNo = null;
 let pollTimer = null;
+let approvalId = null;
 
 function freshDeal() {
   return { productId: null, quantity: null, stepIndex: 0, status: "negotiating", pendingAskPct: null, agreedPrice: null, holdCount: 0 };
@@ -119,8 +121,8 @@ $("chatForm").addEventListener("submit", async (e) => {
     deal = out.state;
     messages.push({ role: "agent", text: out.reply });
     addBubble("agent", out.reply);
-    if (deal.status === "pending_approval") enterPendingApproval();
-    if (deal.status === "closed") recordAndShowDone();
+    if (deal.status === "pending_approval") await enterPendingApproval();
+    if (deal.status === "closed") await recordAndShowDone();
   } catch (err) {
     addBubble("agent", `(connection hiccup — please resend)`);
   } finally {
@@ -128,43 +130,47 @@ $("chatForm").addEventListener("submit", async (e) => {
   }
 });
 
-// ---------------- escalation → owner dashboard bus ----------------
-function enterPendingApproval() {
+// ---------------- escalation → owner dashboard bus (Supabase) ----------------
+async function enterPendingApproval() {
   setLocked(true);
   $("approvalWait").classList.remove("hidden");
   const p = catalogItem(deal.productId);
-  DA.setPending(slug, {
-    business_name: business.profile.business_name,
-    messages, state: deal,
-    product: p ? p.name : null, quantity: deal.quantity, askPct: deal.pendingAskPct,
-    createdAt: Date.now(), decision: null, reply: null,
-  });
-  pollTimer = setInterval(checkDecision, 1500);
+  try {
+    const rec = await DA.createApproval(slug, {
+      business_name: business.profile.business_name,
+      messages, state: deal,
+      product: p ? p.name : null, quantity: deal.quantity, askPct: deal.pendingAskPct,
+    });
+    approvalId = rec ? rec.id : null;
+    if (approvalId) pollTimer = setInterval(checkDecision, 2000);
+  } catch (err) {
+    $("approvalWait").textContent = "Couldn't reach the owner right now — please try again in a moment.";
+  }
 }
 
 async function checkDecision() {
-  const rec = DA.getPending(slug);
-  if (!rec) { // cleared elsewhere
-    clearInterval(pollTimer); return;
-  }
+  if (!approvalId) return;
+  const rec = await DA.getApproval(approvalId);
+  if (!rec) { clearInterval(pollTimer); return; }
   if (rec.decision) {
     clearInterval(pollTimer);
     $("approvalWait").classList.add("hidden");
     // The dashboard already ran the model and stored the reply + updated state.
     deal = rec.state;
     if (rec.reply) { messages.push({ role: "agent", text: rec.reply }); addBubble("agent", rec.reply); }
-    DA.clearPending(slug);
-    if (deal.status === "closed") recordAndShowDone();
+    DA.deleteApproval(approvalId);
+    approvalId = null;
+    if (deal.status === "closed") await recordAndShowDone();
     else setLocked(false);
   }
 }
 
 // ---------------- order done: receipt + whatsapp ----------------
-function recordAndShowDone() {
+async function recordAndShowDone() {
   const p = catalogItem(deal.productId);
   billNo = makeBillNo();
-  DA.addDeal(slug, {
-    bill_no: billNo, closed_at: new Date().toISOString().slice(0, 19),
+  await DA.addDeal(slug, {
+    bill_no: billNo,
     product: p ? p.name : "item", quantity: deal.quantity, unit_price: deal.agreedPrice,
     list_price: p ? p.list_price : deal.agreedPrice,
     discount_pct: p ? Math.round((1 - deal.agreedPrice / p.list_price) * 1000) / 10 : 0,
@@ -207,7 +213,6 @@ function renderOrderDone() {
   const p = catalogItem(deal.productId);
   const total = Math.round((deal.agreedPrice || 0) * (deal.quantity || 0) * 100) / 100;
   const wa = (business.profile.whatsapp || "").replace(/\D/g, "");
-  const rzpKey = (business.profile.razorpay_key_id || "").trim();
   const line = `Order ${billNo}: ${deal.quantity} x ${p ? p.name : "item"} @ ${RS}${deal.agreedPrice} = ${RS}${total}`;
   const dMsg = encodeURIComponent(`Hello ${business.profile.business_name}! ${line}. I'd like HOME DELIVERY please. My address: `);
   const pMsg = encodeURIComponent(`Hello ${business.profile.business_name}! ${line}. I'll PICK UP from the store. When can I collect it?`);
@@ -257,6 +262,19 @@ function payNow(total) {
 }
 
 // ---------------- boot ----------------
-document.title = business.profile.business_name + " · DealAmigo";
-renderOverview();
-if (new URLSearchParams(location.search).get("chat") === "1") openChat();
+(async function boot() {
+  $("shopMain").innerHTML = `<p class="muted" style="padding:40px 0;text-align:center">Loading shop…</p>`;
+  try {
+    business = await DA.getBusiness(slug) || await DA.getBusiness("crossword");
+  } catch (err) {
+    $("shopMain").innerHTML = `<p class="muted" style="padding:40px 0;text-align:center">Couldn't load this shop: ${esc(err.message)}</p>`;
+    return;
+  }
+  if (!business) {
+    $("shopMain").innerHTML = `<p class="muted" style="padding:40px 0;text-align:center">Shop not found.</p>`;
+    return;
+  }
+  document.title = business.profile.business_name + " · DealAmigo";
+  renderOverview();
+  if (new URLSearchParams(location.search).get("chat") === "1") openChat();
+})();
